@@ -14,8 +14,10 @@
   #hud { position: fixed; inset: 0; pointer-events: none; }
   #stats { position: absolute; top: 12px; left: 14px; display: flex; flex-direction: column; gap: 4px; }
   #hearts { font-size: 24px; letter-spacing: 2px; }
-  #score, #arrows { font-size: 18px; background: rgba(0,0,0,.5); padding: 2px 10px; border-radius: 6px; width: fit-content; font-variant-numeric: tabular-nums; }
+  #score, #arrows, #helm { font-size: 18px; background: rgba(0,0,0,.5); padding: 2px 10px; border-radius: 6px; width: fit-content; font-variant-numeric: tabular-nums; }
   #score { color: var(--gold); }
+  #helm { color: #c8b8ff; }
+  #helm.active { color: #fff; background: rgba(90,50,160,.7); box-shadow: 0 0 10px rgba(140,100,255,.7); }
   #timer { position: absolute; top: 14px; right: 14px; font-size: 18px; background: rgba(0,0,0,.5); padding: 4px 10px; border-radius: 6px; font-variant-numeric: tabular-nums; }
   #questbox { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.6); padding: 6px 16px; border-radius: 8px; border: 1px solid var(--line); max-width: min(560px, 50vw); text-align: center; }
   #questbox small { display: block; color: var(--gold); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; }
@@ -86,6 +88,13 @@
   .parent .ic { font-size: 36px; }
   .parent b { display: block; margin: 4px 0; color: var(--gold); }
   .parent small { color: #d8c8a0; }
+  .quests { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; margin: 4px 0 14px; }
+  .quest { width: 250px; padding: 12px 14px; border: 2px solid #6a4a20; border-radius: 12px; background: rgba(0,0,0,.45); cursor: pointer; text-align: left; }
+  .quest.sel { border-color: var(--gold); background: rgba(232,197,71,.15); }
+  .quest b { color: var(--gold); font-size: 18px; }
+  .quest .ic { font-size: 28px; float: left; margin-right: 10px; }
+  .quest small { display: block; color: #d8c8a0; margin-top: 4px; font-size: 13px; line-height: 1.35; }
+  .quest em { display: block; color: var(--good); font-size: 12px; font-style: normal; margin-top: 4px; }
   .big { font-size: 20px; padding: 12px 28px; margin: 6px; }
   .controls { display: grid; grid-template-columns: auto auto; gap: 4px 18px; text-align: left; font-size: 15px; margin: 14px auto; color: #d8c8a0; }
   .muted { color: var(--muted); } .small { font-size: 14px !important; }
@@ -105,11 +114,11 @@
 </head>
 <body>
 <div id="hud" class="hidden">
-  <div id="stats"><div id="hearts"></div><div id="score">★ 0</div><div id="arrows" class="hidden"></div></div>
+  <div id="stats"><div id="hearts"></div><div id="score">★ 0</div><div id="arrows" class="hidden"></div><div id="helm" class="hidden"></div></div>
   <div id="questbox"><small>Úkol</small><div id="objective"></div></div>
   <div id="timer"></div>
   <div id="controlsHud"></div>
-  <div id="boss" class="hidden">MINOTAUROS<div class="bar"><div id="bossfill"></div></div></div>
+  <div id="boss" class="hidden"><span id="bossname">MINOTAUROS</span><div class="bar"><div id="bossfill"></div></div></div>
   <div id="crosshair"></div>
   <div id="popups"></div>
   <div id="speech"></div>
@@ -121,8 +130,10 @@
 <div id="panel" class="hidden"></div>
 
 <div id="menu" class="overlay">
-  <h1>ÚTĚK Z LABYRINTU</h1>
+  <h1 id="menuTitle">ÚTĚK Z LABYRINTU</h1>
   <h2>Escape room ve světě řeckých bohů</h2>
+  <p>Vyber výpravu:</p>
+  <div class="quests" id="quests"></div>
   <div class="name-row"><label for="playerName">Tvoje jméno:</label><input id="playerName" maxlength="20" autocomplete="off" placeholder="např. Aleš" /></div>
   <p>Kdo je tvůj božský rodič?</p>
   <div class="parents" id="parents"></div>
@@ -143,7 +154,7 @@
 <div id="intro" class="overlay hidden">
   <h1>Δ</h1>
   <div id="introText"></div>
-  <button class="big" id="btnStart">Vstoupit do Labyrintu</button>
+  <button class="big" id="btnStart">Vstoupit</button>
 </div>
 
 <div id="pause" class="overlay hidden">
@@ -164,7 +175,7 @@
 
 <div id="win" class="overlay hidden">
   <h1>UNIKL(A) JSI!</h1>
-  <h2>Ariadnina nit tě vyvedla z Labyrintu zpět do Tábora polokrevných.</h2>
+  <h2 id="winText">Ariadnina nit tě vyvedla z Labyrintu zpět do Tábora polokrevných.</h2>
   <p id="winStats"></p>
   <div id="scoreBreakdown"></div>
   <h2>Síň slávy</h2>

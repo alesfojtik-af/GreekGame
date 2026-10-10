@@ -8,17 +8,20 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { buildWorld } from './world.js';
+import { buildHades } from './hades/world.js';
+import { createHadesQuest } from './hades/quest.js';
 import { makePlayer, makeHound, makeMinotaur, makeItem, makeMyrmex, makePest, makeGhost, makeArrow } from './models.js';
 import {
   PARENTS, INTRO, POINTS, SPHINX_QUESTIONS, SPHINX, GATE, GATE_TEXT, SYMBOL_SOLUTION, DIAL_SOLUTION, ITEMS, LORE, AUTOMATON,
   WANDERERS, PEST, CURIOSITIES, JOURNAL, objective, groverLines,
 } from './content.js';
 import { matches } from './speech.js';
-import { initAudio, sfx, toggleMute, setMood, getMood, getVolume, setVolume } from './audio.js';
+import { initAudio, sfx, toggleMute, setMood, getMood, getVolume, setVolume, setMusicSet, getMusicSet } from './audio.js';
 import * as ui from './ui.js';
-import { loadLeaderboard, submitScore, sourceNote, withOwnRow } from './score.js';
+import { loadLeaderboard, submitScore, sourceNote, withOwnRow, setBoard } from './score.js';
 
-const SAVE_KEY = 'labyrint-save-v2';
+const SAVE_KEYS = { labyrint: 'labyrint-save-v2', hades: 'labyrint-save-hades-v1' };
+const QUEST_KEY = 'labyrint-quest';
 const STEP = 0.35;
 const GRAVITY = 20;
 const JUMP_V = 7;
@@ -46,7 +49,8 @@ const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerH
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
 
-scene.add(new THREE.HemisphereLight(0x8a7aa0, 0x2a1a0a, 0.22));
+const hemi = new THREE.HemisphereLight(0x8a7aa0, 0x2a1a0a, 0.22);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffcf98, 1.7);
 sun.position.set(20, 30, 40);
 sun.target.position.set(29, 0, 58);
@@ -107,7 +111,21 @@ function watchPerformance(dt) {
   }
 }
 
-const W = buildWorld(scene);
+// Každý quest má vlastní svět ve skupině; neviditelná skupina se nevykresluje ani nesvítí.
+const worlds = {};
+const worldGroups = {};
+function worldFor(id) {
+  if (!worlds[id]) {
+    const g = new THREE.Group();
+    scene.add(g);
+    worldGroups[id] = g;
+    worlds[id] = id === 'hades' ? buildHades(g) : buildWorld(g);
+  }
+  return worlds[id];
+}
+let questId = 'labyrint';
+try { if (localStorage.getItem(QUEST_KEY) === 'hades') questId = 'hades'; } catch (e) { /* nic */ }
+let W = worldFor(questId);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -194,7 +212,7 @@ function journalAdd(id) {
   return true;
 }
 function readHint(id) {
-  const entry = JOURNAL.find((e) => e.id === id);
+  const entry = Q.journal.find((e) => e.id === id);
   loreOnce(id);
   journalAdd(id);
   openPanel();
@@ -202,7 +220,7 @@ function readHint(id) {
 }
 function openJournal() {
   openPanel();
-  ui.showJournal(JOURNAL.filter((e) => flags['j_' + e.id]), panelClosed);
+  ui.showJournal(Q.journal.filter((e) => flags['j_' + e.id]), panelClosed);
 }
 
 function loreOnce(id) {
@@ -293,6 +311,7 @@ function useSelected() {
     ui.setHearts(player.hp, player.maxHp);
     return;
   }
+  if (Q.useItem && Q.useItem(it.id)) return;
   if (it.id === 'bow') { ui.toast('Luk drž připravený: střílíš pravým tlačítkem myši nebo klávesou E. Šípy: ' + arrows + '.', 3000); return; }
   ui.toast(ITEMS[it.id].desc, 3000);
 }
@@ -312,26 +331,27 @@ function spawnItem(id, pos, key = id) {
 
 function refreshHUD() {
   ui.setHearts(Math.max(0, player.hp), player.maxHp);
-  ui.setObjective(objective(flags));
+  ui.setObjective(Q.objective(flags));
   ui.setScore(score);
   ui.setArrows(arrows, !!flags.hasBow);
   refreshInventory();
   if (player.model) player.model.userData.bow.visible = !!flags.hasBow;
+  if (Q.refreshHUD) Q.refreshHUD();
 }
 
 // ---------- uložení ----------
 function save() {
   try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({ parent: parent.id, playerName, flags, inventory, checkpoint, elapsed, deaths, arrows, score, scoreLog }));
+    localStorage.setItem(SAVE_KEYS[questId], JSON.stringify({ parent: parent.id, playerName, flags, inventory, checkpoint, elapsed, deaths, arrows, score, scoreLog }));
   } catch (e) { /* bez úložiště hra běží dál */ }
 }
 function loadSave() {
-  try { return JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { return null; }
+  try { return JSON.parse(localStorage.getItem(SAVE_KEYS[questId])); } catch (e) { return null; }
 }
-function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* nic */ } }
+function clearSave() { try { localStorage.removeItem(SAVE_KEYS[questId]); } catch (e) { /* nic */ } }
 
 // ---------- nepřátelé ----------
-function createEnemies() {
+function labCreateEnemies() {
   hounds.forEach((h) => scene.remove(h.mesh));
   hounds = [];
   if (!flags.houndsDead) {
@@ -350,14 +370,24 @@ function createEnemies() {
     scene.add(mesh);
     minotaur = { mesh, home: new THREE.Vector3(36, 0, 58), pos: new THREE.Vector3(36, 0, 58), hp: 6, maxHp: 6, state: 'sleep', t: 0, dir: new THREE.Vector3(), yaw: -Math.PI / 2, hitDone: false, clangHint: false };
   }
+}
+function labClear() {
+  hounds.forEach((h) => scene.remove(h.mesh));
+  hounds = [];
+  if (minotaur) scene.remove(minotaur.mesh);
+  minotaur = null;
+}
+
+// Duchové, kteří procházejí kolem a radí (každý quest má své).
+function createGhosts() {
   ghosts.forEach((g) => scene.remove(g.mesh));
   ghosts = [];
-  for (const kind of ['theseus', 'ikaros']) {
+  for (const kind of Object.keys(W.wanderPaths)) {
     const mesh = makeGhost(kind);
     const path = W.wanderPaths[kind];
     mesh.position.set(path[0][0], 0, path[0][1]);
     scene.add(mesh);
-    const it = { id: 'ghost', kind, pos: mesh.position.clone(), radius: 2.4, label: 'Promluvit: ' + WANDERERS[kind].name, enabled: true };
+    const it = { id: 'ghost', kind, pos: mesh.position.clone(), radius: 2.4, label: 'Promluvit: ' + Q.wanderers[kind].name, enabled: true };
     W.interactables.push(it);
     ghosts.push({ kind, mesh, path, wp: 1, pos: mesh.position.clone(), int: it, wave: 0 });
   }
@@ -398,13 +428,11 @@ function removePest(announce) {
   if (announce) ui.toast(PEST.stay, 3000);
 }
 
-function resetEnemiesAfterDeath() {
+function labResetEnemies() {
   for (const h of hounds) {
     if (h.dead) continue;
     h.pos.copy(h.home); h.hp = h.maxHp; h.state = 'idle'; h.knock.set(0, 0, 0);
   }
-  clearMyrmexes();
-  removePest(false);
   if (minotaur) {
     minotaur.pos.copy(minotaur.home); minotaur.hp = minotaur.maxHp; minotaur.state = 'sleep';
     minotaur.mesh.userData.stars.visible = false;
@@ -449,7 +477,9 @@ function respawn() {
   player.hp = player.maxHp;
   player.invuln = 1.5;
   sphinxCorrect = 0;
-  resetEnemiesAfterDeath();
+  clearMyrmexes();
+  removePest(false);
+  Q.resetAfterDeath();
   refreshHUD();
   save();
 }
@@ -620,7 +650,7 @@ function updateMinotaur(dt, time) {
       if (player.pos.x > 17.5 && player.pos.z > 44) {
         m.state = 'stalk'; m.t = 2; sfx.roar(); shake = 0.5;
         ui.toast('MINOTAUROS! Napůl člověk, napůl býk. A je naštvaný.');
-        ui.setBoss(m.hp / m.maxHp);
+        ui.setBoss(m.hp / m.maxHp, 'MINOTAUROS');
       }
       break;
     case 'stalk':
@@ -711,7 +741,7 @@ function hitMinotaur(dmg, src) {
 // ---------- duchové, kteří procházejí kolem ----------
 function updateGhosts(dt, time) {
   for (const g of ghosts) {
-    const visible = g.kind === 'ikaros' ? !!flags.lockOpen : true;
+    const visible = Q.ghostVisible ? Q.ghostVisible(g.kind) : true;
     g.mesh.visible = visible;
     g.int.enabled = visible;
     if (!visible) continue;
@@ -724,7 +754,7 @@ function updateGhosts(dt, time) {
       g.wave += dt;
       u.armR.rotation.z = -2.4 + Math.sin(g.wave * 8) * 0.4;
       u.legL.rotation.x = u.legR.rotation.x = 0;
-      if (!g.greeted) { g.greeted = true; ui.speech(WANDERERS[g.kind].name, 'Hej, ty! Pojď blíž, něco ti povím. [Q]', 2500); }
+      if (!g.greeted) { g.greeted = true; ui.speech(Q.wanderers[g.kind].name, 'Hej, ty! Pojď blíž, něco ti povím. [Q]', 2500); }
     } else {
       g.greeted = false;
       u.armR.rotation.z = 0;
@@ -755,11 +785,15 @@ function attack() {
 }
 
 function enemyTargets() {
+  const list = Q.targets();
+  for (const m of myrmexes) if (!m.dead) list.push({ e: m, pos: m.pos, r: 0.6, y: 0.5, hit: (d, dir, src) => hitMyrmex(m, d, dir, src) });
+  if (pest) list.push({ e: pest, pos: pest.pos, r: 0.5, y: 0.6, hit: () => hitPest() });
+  return list;
+}
+function labTargets() {
   const list = [];
   for (const h of hounds) if (!h.dead) list.push({ e: h, pos: h.pos, r: 0.9, y: 1.1, hit: (d, dir, src) => hitHound(h, d, dir, src) });
-  for (const m of myrmexes) if (!m.dead) list.push({ e: m, pos: m.pos, r: 0.6, y: 0.5, hit: (d, dir, src) => hitMyrmex(m, d, dir, src) });
   if (minotaur) list.push({ e: minotaur, pos: minotaur.pos, r: 1.2, y: 2.0, hit: (d, dir, src) => hitMinotaur(d, src) });
-  if (pest) list.push({ e: pest, pos: pest.pos, r: 0.5, y: 0.6, hit: () => hitPest() });
   return list;
 }
 
@@ -841,18 +875,18 @@ function fireTrigger(tr) {
     case 'vision2':
       sfx.mist();
       ui.flash('rgba(140,110,255,0.35)');
-      ui.toast(CURIOSITIES[outcome], 9000);
+      ui.toast(Q.curiosities[outcome], 9000);
       addScore(POINTS.curiosity, 'vidění', 'discover');
       break;
     case 'treasure':
       sfx.pickup();
-      ui.toast(CURIOSITIES.treasure, 4000);
+      ui.toast(Q.curiosities.treasure, 4000);
       addItem('ambrosia');
       setArrows(arrows + 3);
       addScore(POINTS.treasure, 'poklad', 'discover');
       break;
     case 'monster':
-      ui.toast(CURIOSITIES.monster, 3500);
+      ui.toast(Q.curiosities.monster, 3500);
       spawnMyrmexes(at);
       break;
     case 'pest':
@@ -906,11 +940,19 @@ function pickUp(it) {
       flags.hasBow = true;
       addItem('bow');
       setArrows(parent.id === 'apollo' ? 10 : 6);
-      ui.toast('Máš Artemidin luk! Střílíš pravým tlačítkem myši nebo klávesou E. Míříš křížkem uprostřed obrazovky.', 6000);
+      ui.toast('Máš luk! Střílíš pravým tlačítkem myši nebo klávesou E. Míříš křížkem uprostřed obrazovky.', 6000);
       break;
+    case 'ambrosia': addItem('ambrosia'); ui.toast('Ambrózie! Vyber ji v inventáři číslem a použij klávesou F.'); break;
+    default: Q.pickUp(it);
+  }
+  refreshHUD();
+  save();
+}
+
+function labPickUp(it) {
+  switch (it.item) {
     case 'bronzeKey': flags.hasBronzeKey = true; addItem('bronzeKey'); ui.toast('Máš bronzový klíč!'); break;
     case 'silverKey': addItem('silverKey'); ui.toast('Máš stříbrný klíček.'); break;
-    case 'ambrosia': addItem('ambrosia'); ui.toast('Ambrózie! Vyber ji v inventáři číslem a použij klávesou F.'); break;
     case 'lyraTile':
       flags.hasLyra = true;
       addItem('lyraTile');
@@ -919,8 +961,6 @@ function pickUp(it) {
       break;
     case 'thread': flags.hasThread = true; addItem('thread'); ui.toast('Ariadnina nit! Zářící vlákno se táhne k bráně Δ.'); break;
   }
-  refreshHUD();
-  save();
 }
 
 function interact() {
@@ -929,20 +969,24 @@ function interact() {
   if (it.id === 'item') return pickUp(it);
   if (it.id === 'ghost') {
     openPanel();
-    ui.showNPC(WANDERERS[it.kind], (opt) => {
+    ui.showNPC(Q.wanderers[it.kind], (opt) => {
       if (!flags['wander_' + it.kind]) { flags['wander_' + it.kind] = true; addScore(POINTS.wanderer, 'moudro', 'discover'); }
       return opt.reply;
     }, panelClosed);
     return;
   }
-  if (['plaque', 'oedipus', 'mistTablet', 'mosaic'].includes(it.id)) { readHint(it.id); return; }
-  if (LORE[it.id] && ['statue', 'rubble', 'hecate', 'helmets'].includes(it.id)) {
-    ui.toast(LORE[it.id], 6000);
-    if (it.id !== 'rubble') loreOnce(it.id);
+  if (Q.hintIds.includes(it.id)) { readHint(it.id); return; }
+  if (Q.decor[it.id]) {
+    ui.toast(Q.decor[it.id], 6000);
+    if (!Q.noPoints?.includes(it.id)) loreOnce(it.id);
     return;
   }
   const tr = W.triggers.find((t) => t.id === it.id);
   if (tr) { fireTrigger(tr); return; }
+  Q.interact(it);
+}
+
+function labInteract(it) {
   switch (it.id) {
     case 'grover':
       openPanel();
@@ -1243,6 +1287,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.code === 'KeyF') useSelected();
   if (e.code === 'KeyJ') openJournal();
+  if (Q.onKey) Q.onKey(e.code);
   if (e.code === 'KeyH' && hasItem('ambrosia')) { selected = inventory.findIndex((i) => i.id === 'ambrosia'); useSelected(); }
   if (e.code === 'KeyM') ui.toast(toggleMute() ? 'Zvuk vypnut' : 'Zvuk zapnut', 1200);
   if (e.code === 'Escape' && noLock) pause();
@@ -1255,7 +1300,7 @@ const clock = new THREE.Clock();
 let stepT = 0;
 let timerShown = -1;
 
-function regionCheckpoint(p) {
+function labCheckpoint(p) {
   if (inRect(p, W.rooms.arena)) return 'arena';
   if (inRect(p, W.rooms.mist)) return 'mist';
   if (inRect(p, W.rooms.hounds) && flags.sphinxDone) return 'sphinx';
@@ -1319,13 +1364,13 @@ function updatePlayer(dt, time) {
   } else u.armR.rotation.x = -0.5 + sw * 0.5;
   mdl.visible = p.invuln > 0 ? Math.floor(time * 15) % 2 === 0 : true;
 
-  const cp = regionCheckpoint(p.pos);
+  const cp = Q.checkpoint(p.pos);
   if (cp && cp !== checkpoint) {
     checkpoint = cp;
     if (!flags['cp_' + cp]) { flags['cp_' + cp] = true; ui.toast('Kontrolní bod uložen.', 1500); }
     save();
   }
-  if (p.pos.x > 50 && !flags.escaped) win();
+  if (Q.isWin(p.pos) && !flags.escaped) win();
 }
 
 function updateCamera(dt) {
@@ -1352,8 +1397,7 @@ function updateCamera(dt) {
 
 function updateMood() {
   if (mode === 'dialog') return; // při rozhovoru a hádankách hraje dál stejná hudba
-  const fighting = hounds.some((h) => !h.dead && h.state !== 'idle') || myrmexes.length > 0 || (minotaur && minotaur.state !== 'sleep');
-  setMood(fighting ? 'combat' : 'explore');
+  setMood(Q.fighting() || myrmexes.length > 0 ? 'combat' : 'explore');
 }
 
 let simTime = 0;
@@ -1370,9 +1414,8 @@ function step(dt) {
   }
   if (mode === 'play') {
     updatePlayer(dt, time);
-    updateHounds(dt, time);
+    Q.update(dt, time);
     updateMyrmexes(dt, time);
-    updateMinotaur(dt, time);
     updatePest(dt, time);
     updateTriggers();
     updateProjectiles(dt);
@@ -1381,9 +1424,14 @@ function step(dt) {
   } else ui.setPrompt(null);
   if (mode === 'play' || mode === 'dialog') {
     updateGhosts(dt, time);
+    if (Q.updateAlways) Q.updateAlways(dt, time);
     updateMood();
     elapsed += dt;
     if (Math.floor(elapsed) !== timerShown) { timerShown = Math.floor(elapsed); ui.setTimer(elapsed); }
+  }
+  if (W.env && W.env.follow) {
+    sun.target.position.copy(player.pos);
+    sun.position.copy(player.pos).add(W.env.sunOffset);
   }
   if (player.model) updateCamera(dt);
 }
@@ -1395,6 +1443,115 @@ function loop() {
   if (mode === 'play') watchPerformance(dt);
   grade.uniforms.time.value = (grade.uniforms.time.value + dt) % 100;
   composer.render();
+}
+
+// ---------- questy ----------
+// Neviditelnost (Hádův helm): postava se vykreslí jako průsvitný stín.
+const ghostMat = new THREE.MeshStandardMaterial({ color: 0x8a9aff, transparent: true, opacity: 0.16, emissive: 0x3a3a9a, emissiveIntensity: 0.6, depthWrite: false, roughness: 0.3 });
+function setPlayerGhost(on) {
+  player.ghost = on;
+  if (!player.model) return;
+  player.model.traverse((o) => {
+    if (!o.isMesh) return;
+    if (on) {
+      if (!o.userData.realMat) { o.userData.realMat = o.material; o.userData.realShadow = o.castShadow; }
+      o.material = ghostMat;
+      o.castShadow = false;
+    } else if (o.userData.realMat) {
+      o.material = o.userData.realMat;
+      o.castShadow = o.userData.realShadow;
+      delete o.userData.realMat;
+    }
+  });
+}
+
+const LAB = {
+  id: 'labyrint',
+  title: 'ÚTĚK Z LABYRINTU',
+  docTitle: 'Útěk z Labyrintu',
+  startLabel: 'Vstoupit do Labyrintu',
+  winText: 'Ariadnina nit tě vyvedla z Labyrintu zpět do Tábora polokrevných.',
+  intro: INTRO,
+  journal: JOURNAL,
+  wanderers: WANDERERS,
+  curiosities: CURIOSITIES,
+  hintIds: ['plaque', 'oedipus', 'mistTablet', 'mosaic'],
+  decor: { statue: LORE.statue, rubble: LORE.rubble, hecate: LORE.hecate, helmets: LORE.helmets },
+  noPoints: ['rubble'],
+  objective,
+  timeLimit: POINTS.timeLimit,
+  setup: labSetup,
+  clear: labClear,
+  pickUp: labPickUp,
+  interact: labInteract,
+  targets: labTargets,
+  resetAfterDeath: labResetEnemies,
+  checkpoint: labCheckpoint,
+  isWin: (p) => p.x > 50,
+  fighting: () => hounds.some((h) => !h.dead && h.state !== 'idle') || !!(minotaur && minotaur.state !== 'sleep'),
+  update(dt, time) { updateHounds(dt, time); updateMinotaur(dt, time); },
+  ghostVisible: (kind) => (kind === 'ikaros' ? !!flags.lockOpen : true),
+};
+const LAB_ENV = {
+  bg: 0x120d18, fog: [0x120c08, 12, 48], hemi: [0x8a7aa0, 0x2a1a0a, 0.22], sun: [0xffcf98, 1.7],
+  sunPos: new THREE.Vector3(20, 30, 40), sunTarget: new THREE.Vector3(29, 0, 58), follow: false, exposure: 1.0,
+};
+
+// Rozhraní, přes které quest ovládá společnou hru.
+const api = {
+  scene, ui, sfx, player, POINTS, SHOUT_LEVEL, effects,
+  get W() { return W; }, get flags() { return flags; }, get mode() { return mode; }, get parent() { return parent; }, get arrows() { return arrows; },
+  addScore, puzzleStart, puzzleWrong, puzzleSolved, useHint, journalAdd, loreOnce, openPanel, panelClosed, damagePlayer,
+  hasItem, addItem, removeItem, refreshHUD, save, spawnItem, setArrows, openDoor, killEffect, bowBonus, collide, inRect, makeItem, setPlayerGhost,
+  shake: (v) => { shake = Math.max(shake, v); },
+};
+const quests = { labyrint: LAB, hades: createHadesQuest(api) };
+quests.hades.title = 'HÁDŮV PALÁC';
+quests.hades.docTitle = 'Hádův palác';
+quests.hades.winText = 'Vyšel(a) jsi z Hádova paláce na denní světlo. Pán podsvětí ví, že jsi nevinný(á).';
+quests.hades.controls = [['R', 'helm temnoty (neviditelnost)']];
+let Q = quests[questId];
+
+function applyEnv(env) {
+  scene.background.setHex(env.bg);
+  scene.fog.color.setHex(env.fog[0]); scene.fog.near = env.fog[1]; scene.fog.far = env.fog[2];
+  hemi.color.setHex(env.hemi[0]); hemi.groundColor.setHex(env.hemi[1]); hemi.intensity = env.hemi[2];
+  sun.color.setHex(env.sun[0]); sun.intensity = env.sun[1];
+  if (!env.follow) { sun.position.copy(env.sunPos); sun.target.position.copy(env.sunTarget); }
+  renderer.toneMappingExposure = env.exposure;
+}
+
+// Přepne quest: svět, světla, hudbu, uložení a síň slávy.
+function selectQuest(id, initial = false) {
+  if (!initial) {
+    worldItems.forEach((it) => scene.remove(it.mesh));
+    worldItems.length = 0;
+    projectiles.forEach((p) => scene.remove(p.mesh));
+    projectiles.length = 0;
+    ghosts.forEach((g) => scene.remove(g.mesh));
+    ghosts = [];
+    clearMyrmexes();
+    removePest(false);
+    Q.clear();
+    ui.setBoss(null);
+  }
+  questId = id;
+  try { localStorage.setItem(QUEST_KEY, id); } catch (e) { /* nic */ }
+  W = worldFor(id);
+  for (const [k, g] of Object.entries(worldGroups)) g.visible = k === id;
+  Q = quests[id];
+  applyEnv(W.env || LAB_ENV);
+  setMusicSet(id);
+  setBoard(id);
+  ui.renderControls(Q.controls || []);
+  ui.setHelm(null);
+  document.getElementById('menuTitle').textContent = Q.title;
+  document.title = Q.docTitle;
+  document.getElementById('btnContinue').classList.toggle('hidden', !loadSave());
+  document.getElementById('hallMenu').classList.add('hidden');
+  player.pos.copy(W.spawn.start);
+  player.yaw = 0;
+  if (player.model) player.model.position.copy(player.pos);
 }
 
 // ---------- start, výhra ----------
@@ -1434,6 +1591,22 @@ function setupGame(fromSave) {
   projectiles.forEach((p) => scene.remove(p.mesh));
   projectiles.length = 0;
   W.interactables = W.interactables.filter((i) => i.id !== 'item' && i.id !== 'ghost');
+  for (const tr of W.triggers) {
+    tr.used = !!flags['trig_' + tr.id];
+    if (tr.kind === 'lever') { tr.mesh.userData.arm.rotation.x = tr.used ? -0.6 : 0.6; tr.interact.enabled = !tr.used; }
+    else { tr.mesh.position.y = tr.used ? 0 : 0.03; }
+  }
+
+  Q.setup(fromSave);
+  createGhosts();
+  clearMyrmexes();
+  removePest(false);
+  ui.setBoss(null);
+  respawn();
+  ui.setTimer(elapsed);
+}
+
+function labSetup() {
   const S = W.itemSpots;
   spawnItem('bow', S.bow);
   spawnItem('bronzeKey', S.bronzeKey);
@@ -1458,16 +1631,8 @@ function setupGame(fromSave) {
   W.cageBars.forEach((b) => { b.visible = true; b.position.y = 1.1; });
   W.cageInt.enabled = !flags.cageOpen;
   if (flags.cageOpen) openCage(true);
-  for (const tr of W.triggers) {
-    tr.used = !!flags['trig_' + tr.id];
-    if (tr.kind === 'lever') { tr.mesh.userData.arm.rotation.x = tr.used ? -0.6 : 0.6; tr.interact.enabled = !tr.used; }
-  }
   applyMist(!!flags.hasAmulet);
-
-  createEnemies();
-  ui.setBoss(null);
-  respawn();
-  ui.setTimer(elapsed);
+  labCreateEnemies();
 }
 
 async function win() {
@@ -1476,7 +1641,7 @@ async function win() {
   sfx.victory();
   setMood('explore');
   if (document.pointerLockElement) document.exitPointerLock();
-  const bonus = Math.max(0, Math.round(POINTS.timeLimit - elapsed));
+  const bonus = Math.max(0, Math.round(Q.timeLimit - elapsed));
   if (bonus) addScore(bonus, 'časový bonus', 'time');
   const m = Math.floor(elapsed / 60), s = Math.floor(elapsed % 60);
   document.getElementById('winStats').innerHTML =
@@ -1489,7 +1654,8 @@ async function win() {
   document.getElementById('hud').classList.add('hidden');
   const hall = document.getElementById('hallWin');
   hall.innerHTML = '<p class="muted">Zapisuji do síně slávy...</p>';
-  const sub = await submitScore({ name: playerName, score, time: Math.round(elapsed), deaths, parent: parent.name, parentIcon: parent.icon });
+  document.getElementById('winText').textContent = Q.winText;
+  const sub = await submitScore({ name: playerName, score, time: Math.round(elapsed), deaths, parent: parent.name, parentIcon: parent.icon, quest: questId });
   const lb = withOwnRow(await loadLeaderboard(), sub);
   ui.renderLeaderboard(hall, lb.rows, sub.id, lb.note);
 }
@@ -1497,7 +1663,6 @@ async function win() {
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
 // ---------- menu ----------
-ui.renderControls();
 
 // posuvníky hlasitosti (v menu i v pauze)
 const volInputs = [...document.querySelectorAll('input.vol')];
@@ -1526,8 +1691,6 @@ parentsEl.querySelectorAll('.parent').forEach((el) => {
 const nameInput = document.getElementById('playerName');
 try { nameInput.value = localStorage.getItem('labyrint-name') || ''; } catch (e) { /* nic */ }
 
-const existing = loadSave();
-if (existing) document.getElementById('btnContinue').classList.remove('hidden');
 
 function startPlaying() {
   initAudio();
@@ -1538,6 +1701,24 @@ function startPlaying() {
   lockPointer();
 }
 
+const QUEST_CARDS = [
+  { id: 'labyrint', icon: '🌀', name: 'Útěk z Labyrintu', desc: 'Daidalův Labyrint, Sfinga a Minotaurus. Najdi Ariadninu nit.' },
+  { id: 'hades', icon: '💀', name: 'Hádův palác', desc: 'Podsvětí, Charón, Kerberos a Hádés. Vrať helm temnoty a vyjednej si cestu ven.' },
+];
+const questsEl = document.getElementById('quests');
+function renderQuestCards() {
+  questsEl.innerHTML = QUEST_CARDS.map((q) => {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(SAVE_KEYS[q.id])); } catch (e) { /* nic */ }
+    return `<div class="quest ${q.id === questId ? 'sel' : ''}" data-id="${q.id}" tabindex="0" role="button" aria-pressed="${q.id === questId}"><span class="ic">${q.icon}</span><b>${q.name}</b><small>${q.desc}</small>${saved ? '<em>Rozehraná hra</em>' : ''}</div>`;
+  }).join('');
+  questsEl.querySelectorAll('.quest').forEach((el) => {
+    const pick = () => { if (el.dataset.id !== questId) { selectQuest(el.dataset.id); renderQuestCards(); } };
+    el.onclick = pick;
+    el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') pick(); };
+  });
+}
+
 document.getElementById('btnNew').onclick = () => {
   const name = nameInput.value.trim();
   if (!name) { nameInput.focus(); nameInput.placeholder = 'Nejdřív napiš své jméno'; nameInput.style.borderColor = '#ff8a7a'; return; }
@@ -1546,7 +1727,8 @@ document.getElementById('btnNew').onclick = () => {
   clearSave();
   setupGame(null);
   document.getElementById('introText').innerHTML =
-    INTRO.map((t) => `<p>${t}</p>`).join('') + `<p><b>${escapeHtml(playerName)}, ${parent.icon} jsi dítě boha ${parent.name}.</b> ${parent.perk}</p>`;
+    Q.intro.map((t) => `<p>${t}</p>`).join('') + `<p><b>${escapeHtml(playerName)}, ${parent.icon} jsi dítě boha ${parent.name}.</b> ${parent.perk}</p>`;
+  document.getElementById('btnStart').textContent = Q.startLabel;
   ui.showOverlay('intro');
   mode = 'intro';
 };
@@ -1571,10 +1753,12 @@ document.getElementById('btnMenu').onclick = () => {
   mode = 'menu';
   document.getElementById('hud').classList.add('hidden');
   document.getElementById('btnContinue').classList.remove('hidden');
+  renderQuestCards();
   ui.showOverlay('menu');
 };
 document.getElementById('btnAgain').onclick = () => {
   document.getElementById('btnContinue').classList.add('hidden');
+  renderQuestCards();
   ui.showOverlay('menu');
   mode = 'menu';
 };
@@ -1582,13 +1766,15 @@ document.getElementById('btnAgain').onclick = () => {
 // náhled scény za menu
 player.model = makePlayer(parent.color);
 scene.add(player.model);
-player.pos.copy(W.spawn.start);
-player.model.position.copy(player.pos);
+selectQuest(questId, true);
+renderQuestCards();
 loop();
 
 // pro automatické testy
 window.__game = {
-  tick: (n) => { for (let i = 0; i < n; i++) step(1 / 60); }, keys, player, W, interact, attack, shoot,
+  tick: (n) => { for (let i = 0; i < n; i++) step(1 / 60); }, keys, player, interact, attack, shoot,
   flags: () => flags, get mode() { return mode; }, inventory: () => inventory, hounds: () => hounds, minotaur: () => minotaur,
   myrmexes: () => myrmexes, pest: () => pest, score: () => score, arrows: () => arrows, scoreLog: () => scoreLog, fireTrigger, mood: getMood,
+  get W() { return W; }, get Q() { return Q; }, get quest() { return questId; }, selectQuest, useSelected, selectItem: (id) => { selected = inventory.findIndex((i) => i.id === id); refreshInventory(); },
+  ghosts: () => ghosts, checkpoint: () => checkpoint, musicSet: getMusicSet, renderer, scene,
 };

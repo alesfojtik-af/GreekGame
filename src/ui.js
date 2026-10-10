@@ -1,5 +1,8 @@
 // DOM rozhraní: HUD, rozhovory, hádanky, zámky, inventář, body, síň slávy.
 import { ITEMS, SYMBOLS, DIAL_LETTERS, CONTROLS } from './content.js';
+import { ITEMS as HADES_ITEMS } from './hades/content.js';
+
+Object.assign(ITEMS, HADES_ITEMS);
 import { listen, speechSupported } from './speech.js';
 
 const $ = (id) => document.getElementById(id);
@@ -169,31 +172,33 @@ export function showLock(available, onTry, closeCb) {
   render();
 }
 
-// ---------- číselník Daidalovy skříně (řecká písmena) ----------
-export function showDial(onTry, closeCb) {
-  const pos = [0, 0, 0, 0];
-  let msg = 'Na skříni jsou čtyři kolečka s řeckými písmeny. Nad nimi je vyryto Δ.';
+// ---------- číselník (Daidalova skříň s řeckými písmeny, Hádova pečeť s číslicemi) ----------
+export function showDial(onTry, closeCb, cfg = {}) {
+  const letters = cfg.letters || DIAL_LETTERS;
+  const n = cfg.n || 4;
+  const pos = new Array(n).fill(0);
+  let msg = cfg.text || 'Na skříni jsou čtyři kolečka s řeckými písmeny. Nad nimi je vyryto Δ.';
   const render = () => {
     openPanel(`
-      <div class="npc-name">Daidalova skříň</div>
+      <div class="npc-name">${esc(cfg.title || 'Daidalova skříň')}</div>
       <div class="npc-text">${esc(msg)}</div>
       <div class="slots">${pos.map((p, i) => `
         <div class="wheel">
-          <button data-up="${i}" aria-label="Další písmeno">▲</button>
-          <div class="slot greek">${DIAL_LETTERS[p]}</div>
-          <button data-down="${i}" aria-label="Předchozí písmeno">▼</button>
+          <button data-up="${i}" aria-label="Další znak">▲</button>
+          <div class="slot ${cfg.greek === false ? '' : 'greek'}">${letters[p]}</div>
+          <button data-down="${i}" aria-label="Předchozí znak">▼</button>
         </div>`).join('')}</div>
       <div class="options">
-        <button id="try">Zatáhnout za kliku</button>
+        <button id="try">${esc(cfg.button || 'Zatáhnout za kliku')}</button>
         <button id="leave" class="leave">Odejít [Esc]</button>
       </div>`, closeCb);
-    const n = DIAL_LETTERS.length;
-    $('panel').querySelectorAll('[data-up]').forEach((b) => { b.onclick = () => { pos[+b.dataset.up] = (pos[+b.dataset.up] + 1) % n; render(); }; });
-    $('panel').querySelectorAll('[data-down]').forEach((b) => { b.onclick = () => { pos[+b.dataset.down] = (pos[+b.dataset.down] + n - 1) % n; render(); }; });
+    const k = letters.length;
+    $('panel').querySelectorAll('[data-up]').forEach((b) => { b.onclick = () => { pos[+b.dataset.up] = (pos[+b.dataset.up] + 1) % k; render(); }; });
+    $('panel').querySelectorAll('[data-down]').forEach((b) => { b.onclick = () => { pos[+b.dataset.down] = (pos[+b.dataset.down] + k - 1) % k; render(); }; });
     $('leave').onclick = () => closePanel();
     $('try').onclick = () => {
-      if (onTry(pos.map((p) => DIAL_LETTERS[p]))) { closePanel(); return; }
-      msg = 'Klika se ani nehne. Špatný kód.';
+      if (onTry(pos.map((p) => letters[p]))) { closePanel(); return; }
+      msg = cfg.wrong || 'Klika se ani nehne. Špatný kód.';
       render();
     };
   };
@@ -255,8 +260,10 @@ export function setInventory(inv, selected) {
   $('invhint').textContent = cur ? `${ITEMS[cur.id].name}: ${ITEMS[cur.id].desc}` : 'Inventář je prázdný.';
 }
 
-export function renderControls() {
-  const html = CONTROLS.map(([k, v]) => `<kbd>${esc(k)}</kbd><span>${esc(v)}</span>`).join('');
+export function renderControls(extra = []) {
+  const rows = [...CONTROLS];
+  rows.splice(rows.findIndex((r) => r[0] === 'J') + 1, 0, ...extra);
+  const html = rows.map(([k, v]) => `<kbd>${esc(k)}</kbd><span>${esc(v)}</span>`).join('');
   $('controlsHud').innerHTML = html;
   $('controlsMenu').innerHTML = html;
   $('controlsPause').innerHTML = html;
@@ -267,11 +274,21 @@ export function setTimer(sec) {
   $('timer').textContent = `⏱ ${m}:${String(s).padStart(2, '0')}`;
 }
 
-export function setBoss(frac) {
+export function setBoss(frac, name) {
   const b = $('boss');
   if (frac === null) { b.classList.add('hidden'); return; }
   b.classList.remove('hidden');
+  if (name) $('bossname').textContent = name;
   $('bossfill').style.width = Math.max(0, frac * 100) + '%';
+}
+
+// Ukazatel Hádovy přilby (null = skrýt).
+export function setHelm(text, active = false) {
+  const h = $('helm');
+  if (!text) { h.classList.add('hidden'); return; }
+  h.textContent = text;
+  h.classList.remove('hidden');
+  h.classList.toggle('active', active);
 }
 
 export function flash(color = 'rgba(200,0,0,0.35)') {

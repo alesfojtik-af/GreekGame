@@ -1,10 +1,13 @@
-# Útěk z Labyrintu
+# Útěk z Labyrintu a Hádův palác
 
 3D escape room v prohlížeči na motivy řeckých bájí a knih Ricka Riordana (Percy Jackson). Hrací doba 15–20 minut, česky, pro hráče 12–15 let.
 
 **Spuštění:** otevři `dist/index.html` v Chrome nebo Edge (stačí dvojklik, nic se neinstaluje). Diktování odpovědí funguje v Chrome a Edge.
 
-## Příběh a úkol
+## Volba questu
+V menu vybereš jeden ze dvou questů. Každý má vlastní uloženou hru i vlastní síň slávy.
+
+## Quest 1: Útěk z Labyrintu
 Spadl(a) jsi do Daidalova Labyrintu. Najdi Ariadninu nit a otevři s ní Daidalovu bránu Δ.
 
 | Místnost | Úkol |
@@ -22,13 +25,29 @@ Spadl(a) jsi do Daidalova Labyrintu. Najdi Ariadninu nit a otevři s ní Daidalo
 
 **Zajímavosti:** duchové Théseus a Ikaros procházejí kolem, zastaví se a poradí; nášlapné dlaždice se spirálou a páky s náhodným výsledkem (vidění, poklad, mravenci Myrmékové, nebo otravný Kerkóps, který tě nepustí, dokud neodejdeš z místnosti; jeho zabití stojí body).
 
+## Quest 2: Hádův palác
+Získej zpět Hádův helm temnoty a vyjdi z podsvětí na denní světlo.
+
+| Místnost | Úkol |
+|---|---|
+| Břeh Styxu | Tři urny, právě jeden nápis je pravdivý: najdi obol pro převozníka Charóna; stéla o pěti řekách |
+| Kerberovo nádvoří | Souboj s Kerberem: hlava po kousnutí chvíli leží a jen tehdy je zranitelná; míček ho na 5 s rozptýlí |
+| Asfodelové louky | Bloudící stíny, stéla soudců mrtvých, cesta do Tartaru a k zahradě |
+| Tartaros | Tantalova hádanka (rada na zahradu); Hádova pečeť se třemi koly zastaví Sisyfův balvan a pod ním je helm. Kód skládáš ze stél v dřívějších místnostech |
+| Persefonina zahrada | Proplížení mezi kostlivci (s helmem neviditelný), Persefona nabízí granátové jablko |
+| Trůnní sál | Vrať helm Hádovi a odpověz na jeho tři otázky, pak se otevřou dveře ven |
+
+**Helm temnoty (R):** 6 s neviditelnosti, pak 10 s dobíjení. Kostlivci tě nevidí, Kerberos ano. Za proplížení do trůnního sálu bez odhalení +150.
+
+**Hudba:** temnější varianty (sbor, tuba, zvon) pro průzkum a 6/8 bojovka pro Kerbera.
+
 ## Body a síň slávy
 Na začátku hráč zadá jméno. Body: vyřešená hádanka +300, napoprvé +200, do 30 s +100, chyba −50, nápověda −100, pes +100, Myrmék +50, Minotaurus +500, zásah lukem z dálky +50, tajná skrýš +150, zajímavost +20 až +75, smrt −250, zabitý otrava −200, na konci +1 bod za každou sekundu pod 30 minut.
 
 Síň slávy je na odkazu claude.ai společná pro všechny hráče (úložiště artefaktu). Ve stažené verzi se ukládá jen v daném prohlížeči.
 
 ## Ovládání
-WASD / šipky ↑↓ chůze · myš nebo touchpad / šipky ←→ otáčení · mezerník skok · Q prozkoumat/sebrat/mluvit · klik nebo Shift útok mečem · pravé tlačítko nebo E střelba z luku (míří se křížkem) · 1–9 výběr předmětu · F použít · J deník · H rychle ambrózie · M zvuk · Esc pauza (hlasitost hudby a efektů)
+WASD / šipky ↑↓ chůze · myš nebo touchpad / šipky ←→ otáčení · mezerník skok · Q prozkoumat/sebrat/mluvit · klik nebo Shift útok mečem · pravé tlačítko nebo E střelba z luku (míří se křížkem) · 1–9 výběr předmětu · F použít · J deník · H rychle ambrózie · R helm temnoty (Hádův palác) · M zvuk · Esc pauza (hlasitost hudby a efektů)
 
 ## Božský rodič (volba na začátku)
 Poseidón +1 srdce · Athéna nápověda u hádanek · Hermés rychlost · Arés dvojnásobná síla · Apollón léčení a více šípů.
@@ -38,9 +57,9 @@ Poseidón +1 srdce · Athéna nápověda u hádanek · Hermés rychlost · Arés
 npm install
 node build.mjs     # sestaví dist/index.html (jeden soubor, three.js uvnitř)
 ```
-Zdrojáky v `src/`: `content.js` (texty, hádanky, body, deník), `world.js` (mapa), `main.js` (logika), `models.js` (postavy), `surface.js` (látky, srst, kůže), `textures.js` (fotografické textury), `ui.js`, `speech.js`, `audio.js` (hudba a zvuky), `score.js` (síň slávy).
+Zdrojáky v `src/`: `content.js` (texty, hádanky, body, deník), `world.js` (mapa), `main.js` (logika), `models.js` (postavy), `surface.js` (látky, srst, kůže), `textures.js` (fotografické textury), `ui.js`, `speech.js`, `audio.js` (hudba a zvuky), `score.js` (síň slávy). Hádův palác má vlastní složku `src/hades/` (`content.js`, `world.js`, `models.js`, `quest.js`).
 
-**Hudba:** `tools/music/compose.py` složí dvě smyčky (průzkum ve stylu Barbara Conana, boj ve stylu Pirátů z Karibiku) jako MIDI a vyrenderuje je přes fluidsynth se zvuky FluidR3 GM do `src/assets/music/`. Jde o vlastní skladby, ne o filmové melodie.
+**Hudba:** `tools/music/compose.py` složí čtyři smyčky (Labyrint: průzkum ve stylu Barbara Conana a boj ve stylu Pirátů z Karibiku; Hádův palác: jejich temnější varianty) jako MIDI a vyrenderuje je přes fluidsynth se zvuky FluidR3 GM do `src/assets/music/`. Jde o vlastní skladby, ne o filmové melodie.
 
 **Textury:** `tools/textures/prepare.py` stáhne a zmenší textury do `src/assets/tex/`.
 

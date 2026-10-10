@@ -46,6 +46,8 @@ function texMat(tex, rx, ry, extra = {}) {
   return new THREE.MeshStandardMaterial({ map: t, roughness: 0.9, ...extra });
 }
 
+export { canvasTex, wrap, rnd };
+
 export function textTexture(lines, opts = {}) {
   const { w = 512, h = 256, bg = 'rgba(0,0,0,0)', color = '#cfe0ff', font = 'bold 34px Georgia', glow = '#7a8cff' } = opts;
   return canvasTex(w, h, (g) => {
@@ -95,8 +97,8 @@ function makeSpiralTex() {
   });
 }
 
-// ---------- svět ----------
-export function buildWorld(scene) {
+// ---------- stavebnice úrovní (společná pro všechny questy) ----------
+export function makeBuilder(scene, { wallTint = WALL_TINT, floorTint = FLOOR_TINT, ceilingTint = 0x6a5a48, friezeTex = meanderTex, torchColor = 0xff9440, flameColor = null, wallTex = 'stone' } = {}) {
   sealMat = sealMat || makeSealMat();
   const spiralTex = makeSpiralTex();
   const colliders = [];
@@ -122,7 +124,7 @@ export function buildWorld(scene) {
   }
 
   // Zdi mají souřadnice textury podle skutečných metrů, takže kámen navazuje i na ostění dveří.
-  const WALL = wallMat(1 / 2.6, 1 / 2.6);
+  const WALL = pbr(wallTex, 1 / 2.6, 1 / 2.6, { color: wallTint, normal: 1.3, roughness: 0.92 });
   function worldUV(mesh) {
     const g = mesh.geometry, p = g.attributes.position, n = g.attributes.normal, uv = g.attributes.uv, o = mesh.position;
     for (let i = 0; i < p.count; i++) {
@@ -139,15 +141,15 @@ export function buildWorld(scene) {
   }
 
   // Místnost: obdélník, zdi vně obdélníku, otvory {side, c, w, h}.
-  function room(x1, z1, x2, z2, { openings = [], skip = [], h = 4.5, ceiling = true, floor = 'stone', frieze = true } = {}) {
-    const tile = floor === 'grass' ? 3 : floor === 'sand' ? 4 : 2.2;
-    const fl = new THREE.Mesh(new THREE.PlaneGeometry(x2 - x1, z2 - z1), pbr(floor, (x2 - x1) / tile, (z2 - z1) / tile, { color: floor === 'stone' ? FLOOR_TINT : floor === 'sand' ? new THREE.Color(1.0, 1.04, 1.16) : 0xd0d8c0, normal: floor === 'sand' ? 0.6 : 1.2, roughness: floor === 'stone' ? 0.8 : 0.95 }));
+  function room(x1, z1, x2, z2, { openings = [], skip = [], h = 4.5, ceiling = true, floor = 'stone', frieze = true, floorColor = null } = {}) {
+    const tile = floor === 'grass' ? 3 : floor === 'sand' ? 4 : floor === 'rock' ? 4 : 2.2;
+    const fl = new THREE.Mesh(new THREE.PlaneGeometry(x2 - x1, z2 - z1), pbr(floor, (x2 - x1) / tile, (z2 - z1) / tile, { color: floorColor ?? (floor === 'stone' ? floorTint : floor === 'rock' ? floorTint : floor === 'sand' ? new THREE.Color(1.0, 1.04, 1.16) : 0xd0d8c0), normal: floor === 'sand' ? 0.6 : 1.2, roughness: floor === 'stone' ? 0.8 : 0.95 }));
     fl.rotation.x = -Math.PI / 2;
     fl.position.set((x1 + x2) / 2, 0, (z1 + z2) / 2);
     fl.receiveShadow = true;
     scene.add(fl);
     if (ceiling) {
-      const ce = new THREE.Mesh(new THREE.PlaneGeometry(x2 - x1 + 1, z2 - z1 + 1), pbr('rock', (x2 - x1) / 4, (z2 - z1) / 4, { color: 0x6a5a48, roughness: 0.95 }));
+      const ce = new THREE.Mesh(new THREE.PlaneGeometry(x2 - x1 + 1, z2 - z1 + 1), pbr('rock', (x2 - x1) / 4, (z2 - z1) / 4, { color: ceilingTint, roughness: 0.95 }));
       ce.rotation.x = Math.PI / 2;
       ce.position.set((x1 + x2) / 2, h, (z1 + z2) / 2);
       scene.add(ce);
@@ -176,7 +178,7 @@ export function buildWorld(scene) {
       if (frieze) {
         // ozdobný pás s meandrem po vnitřní straně
         const len = s.b - s.a;
-        const fm = new THREE.Mesh(new THREE.PlaneGeometry(len, 0.35), texMat(meanderTex, len / 1.5, 1));
+        const fm = new THREE.Mesh(new THREE.PlaneGeometry(len, 0.35), texMat(friezeTex, len / 1.5, 1));
         const inset = 0.02;
         if (key === 's') { fm.position.set((s.a + s.b) / 2, h - 0.4, z1 + inset); }
         if (key === 'n') { fm.position.set((s.a + s.b) / 2, h - 0.4, z2 - inset); fm.rotation.y = Math.PI; }
@@ -187,12 +189,14 @@ export function buildWorld(scene) {
     }
   }
 
-  function torch(x, y, z, withLight = true) {
+  const flameMat = flameColor ? new THREE.MeshBasicMaterial({ color: flameColor }) : null;
+  function torch(x, y, z, withLight = true, color = torchColor, flame = flameMat) {
     const t = makeTorch();
     t.position.set(x, y, z);
+    if (flame) t.userData.flame.material = flame;
     scene.add(t);
     if (withLight) {
-      const l = new THREE.PointLight(0xff9440, 26, 16, 1.8);
+      const l = new THREE.PointLight(color, 26, 16, 1.8);
       l.position.set(x + (x > 0 ? -0.4 : x < -0 ? 0.4 : 0), y + 0.7, z);
       scene.add(l);
       animated.push((time) => { l.intensity = 24 + Math.sin(time * 9 + x) * 2.5 + Math.sin(time * 23 + z) * 1.8; });
@@ -259,6 +263,48 @@ export function buildWorld(scene) {
     triggers.push({ id, kind: 'lever', pos: it.pos.clone(), mesh: l, room, used: false, interact: it });
   }
 
+
+  // Prach poletující ve světle. rooms: [x1, z1, x2, z2, výška]
+  function dust(rooms, n = 900, color = 0xffd9a8) {
+    const sprite = canvasTex(64, 64, (g, w, h) => {
+      const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+      gr.addColorStop(0, 'rgba(255,240,210,1)'); gr.addColorStop(0.4, 'rgba(255,220,170,0.35)'); gr.addColorStop(1, 'rgba(255,200,150,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    });
+    const pos = new Float32Array(n * 3);
+    const base = new Float32Array(n * 3);
+    const dr = rnd(21);
+    for (let i = 0; i < n; i++) {
+      const r = rooms[Math.floor(dr() * rooms.length)];
+      base[i * 3] = r[0] + dr() * (r[2] - r[0]);
+      base[i * 3 + 1] = 0.3 + dr() * (r[4] - 0.5);
+      base[i * 3 + 2] = r[1] + dr() * (r[3] - r[1]);
+    }
+    pos.set(base);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const pts = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.06, map: sprite, color, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, fog: true }));
+    pts.frustumCulled = false;
+    scene.add(pts);
+    animated.push((time) => {
+      for (let i = 0; i < n; i++) {
+        const k = i * 3, ph = i * 0.37;
+        pos[k] = base[k] + Math.sin(time * 0.13 + ph) * 0.6;
+        pos[k + 1] = base[k + 1] + Math.sin(time * 0.09 + ph * 1.7) * 0.4;
+        pos[k + 2] = base[k + 2] + Math.cos(time * 0.11 + ph * 0.6) * 0.6;
+      }
+      geo.attributes.position.needsUpdate = true;
+    });
+    return pts;
+  }
+
+  return { colliders, solids, interactables, mist, animated, triggers, T, WALL, marble, box, worldUV, wallBox, room, torch, plane, seal, addInteract, column, plate, lever, dust };
+}
+
+// ---------- Labyrint ----------
+export function buildWorld(scene) {
+  const B = makeBuilder(scene);
+  const { colliders, solids, interactables, mist, animated, triggers, WALL, marble, box, worldUV, room, torch, plane, seal, addInteract, column, plate, lever } = B;
   // ===== 1) Vstupní síň =====
   room(-8, 0, 8, 16, { openings: [{ side: 'n', c: 0, w: 2.4 }] });
   torch(-7.7, 2.2, 6); torch(7.7, 2.2, 6); torch(-7.7, 2.2, 13.5, false);
@@ -535,37 +581,7 @@ export function buildWorld(scene) {
   plane(sign, 4, 2, 55.9, 3, 58, -Math.PI / 2);
 
   // ===== Atmosféra: prach ve světle pochodní a sluneční paprsky v aréně =====
-  const dustSprite = canvasTex(64, 64, (g, w, h) => {
-    const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
-    gr.addColorStop(0, 'rgba(255,240,210,1)'); gr.addColorStop(0.4, 'rgba(255,220,170,0.35)'); gr.addColorStop(1, 'rgba(255,200,150,0)');
-    g.fillStyle = gr; g.fillRect(0, 0, w, h);
-  });
-  const dustRooms = [[-8, 0, 8, 16, 4], [-7, 22.5, 7, 34, 5], [-3.5, 34.5, 3.5, 52, 3.5], [-8, 52.5, 8, 64, 4.5], [14.5, 44, 44, 72, 7]];
-  const dustN = 900;
-  const dustPos = new Float32Array(dustN * 3);
-  const dustBase = new Float32Array(dustN * 3);
-  const dr = rnd(21);
-  for (let i = 0; i < dustN; i++) {
-    const r = dustRooms[Math.floor(dr() * dustRooms.length)];
-    dustBase[i * 3] = r[0] + dr() * (r[2] - r[0]);
-    dustBase[i * 3 + 1] = 0.3 + dr() * (r[4] - 0.5);
-    dustBase[i * 3 + 2] = r[1] + dr() * (r[3] - r[1]);
-  }
-  dustPos.set(dustBase);
-  const dustGeo = new THREE.BufferGeometry();
-  dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
-  const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ size: 0.06, map: dustSprite, color: 0xffd9a8, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, fog: true }));
-  dust.frustumCulled = false;
-  scene.add(dust);
-  animated.push((time) => {
-    for (let i = 0; i < dustN; i++) {
-      const k = i * 3, ph = i * 0.37;
-      dustPos[k] = dustBase[k] + Math.sin(time * 0.13 + ph) * 0.6;
-      dustPos[k + 1] = dustBase[k + 1] + Math.sin(time * 0.09 + ph * 1.7) * 0.4;
-      dustPos[k + 2] = dustBase[k + 2] + Math.cos(time * 0.11 + ph * 0.6) * 0.6;
-    }
-    dustGeo.attributes.position.needsUpdate = true;
-  });
+  B.dust([[-8, 0, 8, 16, 4], [-7, 22.5, 7, 34, 5], [-3.5, 34.5, 3.5, 52, 3.5], [-8, 52.5, 8, 64, 4.5], [14.5, 44, 44, 72, 7]]);
 
   const shaftMat = new THREE.ShaderMaterial({
     uniforms: { time: { value: 0 }, color: { value: new THREE.Color(0xffd8a0) } },

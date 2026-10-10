@@ -1,11 +1,16 @@
-// Zvuky a hudba. Hudba jsou tři nahrané smyčky se skutečnými nástroji
-// (tools/music/compose.py): průzkum (epický pochod), boj (rychlé 6/8) a hádanky (harfa a flétna).
+// Zvuky a hudba. Hudba jsou nahrané smyčky se skutečnými nástroji (tools/music/compose.py):
+// pro každý quest průzkum (epický pochod) a boj (rychlé 6/8); podsvětí má temnější verze.
 // Efekty se syntetizují přes Web Audio.
 import exploreData from './assets/music/explore.webm';
 import combatData from './assets/music/combat.webm';
+import hadesExploreData from './assets/music/hades_explore.webm';
+import hadesCombatData from './assets/music/hades_combat.webm';
 import LOOPS from './assets/music/loops.json';
 
-const MUSIC = { explore: exploreData, combat: combatData };
+const MUSIC = {
+  labyrint: { explore: ['explore', exploreData], combat: ['combat', combatData] },
+  hades: { explore: ['hades_explore', hadesExploreData], combat: ['hades_combat', hadesCombatData] },
+};
 const VOLUME_KEY = 'labyrint-volume';
 const MASTER = 0.7;
 
@@ -14,8 +19,10 @@ let master = null;
 let sfxBus = null;
 let musicBus = null;
 let muted = false;
-const moods = {};
+const moods = {}; // 'sada/nálada' -> { gain, buffer, src, file }
 let currentMood = 'explore';
+let musicSet = 'labyrint';
+const key = (name, set = musicSet) => set + '/' + name;
 const volume = loadVolume();
 
 function loadVolume() {
@@ -54,12 +61,36 @@ export function initAudio() {
   musicBus = ctx.createGain();
   musicBus.gain.value = volume.music * 0.8;
   musicBus.connect(master);
-  for (const name of Object.keys(MUSIC)) {
+  ensureSet(musicSet);
+}
+
+function ensureSet(set) {
+  for (const [name, [file, data]] of Object.entries(MUSIC[set])) {
+    const k = key(name, set);
+    if (moods[k]) continue;
     const g = ctx.createGain();
-    g.gain.value = name === currentMood ? 1 : 0;
+    g.gain.value = set === musicSet && name === currentMood ? 1 : 0;
     g.connect(musicBus);
-    moods[name] = { gain: g, buffer: null, src: null };
-    decode(name);
+    moods[k] = { gain: g, buffer: null, src: null, file, data };
+    decode(k);
+  }
+}
+
+// Přepne hudbu na jiný quest (labyrint | hades).
+export function setMusicSet(set) {
+  if (!MUSIC[set] || set === musicSet) return;
+  musicSet = set;
+  if (!ctx) return;
+  ensureSet(set);
+  fadeTo(key(currentMood), 1.2);
+}
+
+function fadeTo(active, fadeOut) {
+  const now = ctx.currentTime;
+  for (const [k, m] of Object.entries(moods)) {
+    const on = k === active;
+    m.gain.gain.cancelScheduledValues(now);
+    m.gain.gain.setTargetAtTime(on ? 1 : 0, now, on ? 0.5 : fadeOut);
   }
 }
 
@@ -73,7 +104,7 @@ function base64ToBuffer(b64) {
 function decode(name) {
   const done = (buf) => { moods[name].buffer = buf; play(name, false); };
   try {
-    const r = ctx.decodeAudioData(base64ToBuffer(MUSIC[name]), done, () => { /* starý prohlížeč: hra hraje bez hudby */ });
+    const r = ctx.decodeAudioData(base64ToBuffer(moods[name].data), done, () => { /* starý prohlížeč: hra hraje bez hudby */ });
     if (r && r.catch) r.catch(() => {});
   } catch (e) { /* bez hudby */ }
 }
@@ -89,7 +120,7 @@ function play(name, fromStart) {
   src.loop = true;
   src.loopStart = 0;
   // délka smyčky přesně na vzorek (konec souboru může mít výplň kodeku)
-  src.loopEnd = Math.min(m.buffer.duration, LOOPS[name].samples / LOOPS[name].rate);
+  src.loopEnd = Math.min(m.buffer.duration, LOOPS[m.file].samples / LOOPS[m.file].rate);
   src.connect(m.gain);
   src.start(ctx.currentTime + 0.02);
   m.src = src;
@@ -104,17 +135,15 @@ export function toggleMute() {
 export const getMood = () => currentMood;
 
 export function setMood(name) {
-  if (!ctx || name === currentMood || !moods[name]) return;
+  if (!ctx || name === currentMood || !moods[key(name)]) return;
   currentMood = name;
-  const now = ctx.currentTime;
-  for (const [k, m] of Object.entries(moods)) {
-    const on = k === name;
-    // boj začíná vždy od začátku, aby nástup seděl na první doby
-    if (on && k === 'combat' && m.gain.gain.value < 0.05) play(k, true);
-    m.gain.gain.cancelScheduledValues(now);
-    m.gain.gain.setTargetAtTime(on ? 1 : 0, now, on ? 0.5 : 0.9);
-  }
+  const k = key(name);
+  // boj začíná vždy od začátku, aby nástup seděl na první doby
+  if (name === 'combat' && moods[k].gain.gain.value < 0.05) play(k, true);
+  fadeTo(k, 0.9);
 }
+
+export const getMusicSet = () => musicSet;
 
 let noiseBuf = null;
 function noiseHit(out, t, vol, freq, dur, type = 'lowpass') {

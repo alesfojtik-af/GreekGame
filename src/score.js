@@ -1,7 +1,13 @@
 // Body a síň slávy. Na odkazu claude.ai se tabulka sdílí přes úložiště artefaktu,
 // ve stažené verzi zůstává jen v tomto prohlížeči.
 
-const LOCAL_KEY = 'labyrint-leaderboard-v1';
+// Každý quest má vlastní tabulku: kolekci v úložišti artefaktu a místní klíč.
+const BOARDS = {
+  labyrint: { collection: 'scores', local: 'labyrint-leaderboard-v1' },
+  hades: { collection: 'scores_hades', local: 'labyrint-leaderboard-hades-v1' },
+};
+let board = BOARDS.labyrint;
+export function setBoard(quest) { board = BOARDS[quest] || BOARDS.labyrint; }
 let dbPromise = null;
 
 function getDb() {
@@ -14,10 +20,10 @@ function getDb() {
 }
 
 function readLocal() {
-  try { return JSON.parse(localStorage.getItem(LOCAL_KEY)) || []; } catch (e) { return []; }
+  try { return JSON.parse(localStorage.getItem(board.local)) || []; } catch (e) { return []; }
 }
 function writeLocal(rows) {
-  try { localStorage.setItem(LOCAL_KEY, JSON.stringify(rows.slice(0, 50))); } catch (e) { /* bez úložiště */ }
+  try { localStorage.setItem(board.local, JSON.stringify(rows.slice(0, 50))); } catch (e) { /* bez úložiště */ }
 }
 
 const sortRows = (rows) => rows.sort((a, b) => b.score - a.score || a.time - b.time);
@@ -27,7 +33,7 @@ export async function loadLeaderboard() {
   const db = await getDb();
   if (db) {
     try {
-      const snap = await db.collection('scores').orderBy('score', 'desc').limit(10).get();
+      const snap = await db.collection(board.collection).orderBy('score', 'desc').limit(10).get();
       return { rows: sortRows(snap.docs.map((d) => ({ id: d.id, ...d.data() }))), shared: true };
     } catch (e) { /* spadneme na místní tabulku */ }
   }
@@ -41,7 +47,7 @@ export async function submitScore(entry) {
   const row = { ...entry, at: new Date().toISOString() };
   if (db) {
     try {
-      const ref = await db.collection('scores').add(row);
+      const ref = await db.collection(board.collection).add(row);
       return { id: ref.id, row: { id: ref.id, ...row }, shared: true };
     } catch (e) { /* např. odkaz jen pro čtení: uložíme aspoň místně */ }
   }

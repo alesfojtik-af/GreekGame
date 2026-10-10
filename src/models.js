@@ -245,7 +245,7 @@ export function makeGhost(kind) {
   const u = buildHuman(g, M, { hair: { cover: 0.5, tilt: 0.4, messy: 0.12 } });
   // sukně tuniky a plášť
   add(lathe([[0.17, 0.9], [0.19, 0.78], [0.23, 0.6], [0.25, 0.5], [0.0001, 0.5]].reverse(), 24), ghost, g).scale.set(1, 1, 0.75);
-  if (kind === 'theseus') {
+  if (kind === 'theseus' || kind === 'achilles') {
     // korintská přilba s hřebenem
     add(new THREE.SphereGeometry(0.125, 24, 14, 0, Math.PI * 2, 0, Math.PI * 0.62), ghost, u.head, 0, 0.02, -0.005).scale.set(0.9, 1.2, 1.05);
     const crest = new THREE.Shape();
@@ -253,14 +253,21 @@ export function makeGhost(kind) {
     const c = add(new THREE.ExtrudeGeometry(crest, { depth: 0.035, bevelEnabled: false }), ghost, u.head, -0.0175, 0.12, 0);
     c.rotation.y = Math.PI / 2;
     for (const s of [-1, 1]) add(new RoundedBoxGeometry(0.02, 0.12, 0.09, 1, 0.008), ghost, u.head, s * 0.085, -0.04, 0.05);
-  } else {
+  } else if (kind === 'orfeus') {
+    // lyra v levé ruce
+    const ly = group(u.armL.userData.hand, 0, -0.12, 0.08);
+    ly.rotation.set(-1.2, 0, 0);
+    for (const s of [-1, 1]) add(taper([V(s * 0.02, 0, 0), V(s * 0.09, 0.12, 0), V(s * 0.06, 0.26, 0)], 0.014, 0.01, 12, 6), ghost, ly);
+    add(Cyl(0.008, 0.008, 0.16, 6), ghost, ly, 0, 0.25, 0).rotation.z = Math.PI / 2;
+    for (let i = 0; i < 5; i++) add(Cyl(0.002, 0.002, 0.22, 4), ghost, ly, -0.04 + i * 0.02, 0.13, 0, false);
+  } else if (kind !== 'shade') {
     const gf = ghost.clone(); gf.side = THREE.DoubleSide;
     const wl = featherWing(gf, gf, gf); wl.position.set(-0.08, 1.35, -0.12); wl.rotation.set(0, Math.PI / 2 + 0.5, 0.35); wl.scale.setScalar(0.55); g.add(wl);
     const wr = featherWing(gf, gf, gf); wr.position.set(0.08, 1.35, -0.12); wr.rotation.set(0, -Math.PI / 2 - 0.5, -0.35); wr.scale.set(-0.55, 0.55, 0.55); g.add(wr);
   }
   g.scale.setScalar(1.06);
   g.traverse((o) => { o.castShadow = false; });
-  g.userData = { legL: u.legL, legR: u.legR, armL: u.armL, armR: u.armR, head: u.head };
+  g.userData = { legL: u.legL, legR: u.legR, armL: u.armL, armR: u.armR, head: u.head, ghost };
   return g;
 }
 
@@ -642,6 +649,9 @@ function tileTexture(icon) {
   return t;
 }
 
+// Předměty dalších questů se registrují sem (hades/models.js).
+export const itemMakers = {};
+
 export function makeItem(type) {
   const g = new THREE.Group();
   if (type === 'bronzeKey' || type === 'silverKey') {
@@ -665,7 +675,7 @@ export function makeItem(type) {
     for (let i = 0; i < 4; i++) add(Cyl(0.01, 0.01, 0.3, 4), mat(0xd04030), g, -0.08 + i * 0.04, 0.3, 0).rotation.z = 0.3;
   } else if (type === 'lyraTile') {
     add(new THREE.BoxGeometry(0.4, 0.4, 0.06), new THREE.MeshStandardMaterial({ map: tileTexture('🎵'), metalness: 0.4, roughness: 0.4 }), g);
-  }
+  } else if (itemMakers[type]) itemMakers[type](g);
   return g;
 }
 
@@ -704,3 +714,6 @@ export function makeLever() {
   g.userData = { arm };
   return g;
 }
+
+// Stavební díly pro postavy dalších questů.
+export { add, S, C, Cyl, group, lathe, seg, limb2, taper, V, own, buildHuman, headGeo, hairGeo, humanFace, featherWing, featherMat, makeBowMesh, TORSO };

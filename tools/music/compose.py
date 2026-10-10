@@ -1,12 +1,13 @@
-"""Složí tři hudební smyčky hry (MIDI) a vyrenderuje je skutečnými nástroji.
+"""Složí hudební smyčky hry (MIDI) a vyrenderuje je skutečnými nástroji.
 
 Průzkum: pomalý epický pochod (bubny, sbor, lesní rohy).
 Boj: rychlý rytmus v 6/8 (smyčce, rohy, trubky, tympány).
-Hádanky: tichá harfa, smyčce a flétna.
+Podsvětí (Hádův palác): temnější verze obou, pomalejší a níž, s frygickým Es dur.
+Hádanky: tichá harfa, smyčce a flétna (už se nepoužívá).
 
 Spuštění (potřebuje fluidsynth, FluidR3_GM.sf2, ffmpeg, mido, numpy):
     python3 tools/music/compose.py
-Výstup: src/assets/music/{explore,combat}.webm (Opus, smyčka bez švu).
+Výstup: src/assets/music/{explore,combat,hades_explore,hades_combat}.webm (Opus, smyčka bez švu).
 """
 import os
 import random
@@ -38,7 +39,7 @@ def p(name):
 
 CHORDS = {
     'Dm': ['D', 'F', 'A'], 'C': ['C', 'E', 'G'], 'Bb': ['Bb', 'D', 'F'], 'A': ['A', 'C#', 'E'],
-    'F': ['F', 'A', 'C'], 'Gm': ['G', 'Bb', 'D'], 'Asus': ['A', 'D', 'E'],
+    'F': ['F', 'A', 'C'], 'Gm': ['G', 'Bb', 'D'], 'Asus': ['A', 'D', 'E'], 'Eb': ['Eb', 'G', 'Bb'],
 }
 
 
@@ -306,6 +307,133 @@ def puzzle():
     return s, 'puzzle'
 
 
+# ---------------------------------------------------------------- podsvětí: průzkum
+def hades_explore():
+    # pohřební pochod: pomalejší, nízký sbor, tuba, zvon na začátku frází
+    s = Song(4, TPB, 54, 16)
+    chords = ['Dm', 'Dm', 'Eb', 'Dm', 'Gm', 'Eb', 'A', 'A', 'Dm', 'Bb', 'Gm', 'A', 'Dm', 'Eb', 'Gm', 'A']
+    s.part('choir', 0, 52, vol=80, pan=64, rev=100)
+    s.part('low', 1, 49, vol=92, pan=50, rev=80)
+    s.part('bass', 2, 43, vol=92, pan=60, rev=60)
+    s.part('horn', 3, 60, vol=100, pan=46, rev=95)
+    s.part('tuba', 4, 58, vol=82, pan=70, rev=70)
+    s.part('taiko', 5, 116, vol=92, pan=64, rev=75)
+    s.part('timp', 6, 47, vol=90, pan=70, rev=80)
+    s.part('bell', 7, 14, vol=58, pan=84, rev=110)
+    s.part('trombone', 8, 57, vol=74, pan=40, rev=80)
+
+    voicing = {'Dm': ['D3', 'F3', 'A3'], 'Eb': ['Eb3', 'G3', 'Bb3'], 'Gm': ['D3', 'G3', 'Bb3'], 'Bb': ['D3', 'F3', 'Bb3'], 'A': ['C#3', 'E3', 'A3']}
+    root = {'Dm': 'D', 'Eb': 'Eb', 'Gm': 'G', 'Bb': 'Bb', 'A': 'A'}
+    for b, ch in enumerate(chords, 1):
+        v = 44 if b <= 4 else 52 if b <= 12 else 60
+        for n in voicing[ch]:
+            s.note('choir', b, 0, 3.9, p(n), v)
+        r = root[ch]
+        low = p(r + '2') if p(r + '2') >= p('C2') else p(r + '3')
+        s.note('low', b, 0, 3.9, low + 12, 54)
+        s.note('bass', b, 0, 3.9, low, 64)
+        s.note('tuba', b, 0, 1.8, low, 58)
+        s.note('tuba', b, 2, 1.8, low + 7 if r not in ('A',) else low + 7, 46)
+        # pohřební buben: 1 a 3, tlumeně
+        s.note('taiko', b, 0, 0.5, p('F2'), 80 if b % 4 == 1 else 66)
+        s.note('taiko', b, 2, 0.5, p('F2'), 52)
+        if b % 4 == 0:
+            s.note('taiko', b, 3.5, 0.5, p('F2'), 44)
+    for b in range(1, 17):
+        s.cc('choir', b, 0, 11, 76 if b <= 12 else 76 + (b - 12) * 10)
+    for b in (1, 5, 9, 13):
+        s.note('bell', b, 0, 3.5, p('D4'), 54)
+        s.note('timp', b, 0, 1.5, p('D2'), 74)
+    for i in range(16):
+        s.note('timp', 16, 2 + i * 0.125, 0.12, p('A2'), 34 + i * 3, human=False)
+
+    melody(s, 'horn', 2, [[('A3', 1), ('D4', 3)]], 60)
+    melody(s, 'horn', 4, [[('F3', 2), ('D3', 2)]], 56)
+    theme = [
+        [('D4', 2), ('Bb3', 1), ('C4', 1)],
+        [('Eb4', 1.5), ('D4', 0.5), ('Bb3', 2)],
+        [('C#4', 2), ('E4', 1), ('D4', 1)],
+        [('A3', 4)],
+        [('D4', 1), ('F4', 1), ('A4', 1.5), ('G4', 0.5)],
+        [('F4', 2), ('D4', 1), ('Eb4', 1)],
+        [('D4', 1.5), ('C4', 0.5), ('Bb3', 2)],
+        [('C#4', 2), ('A3', 2)],
+        [('A4', 2), ('F4', 1), ('E4', 1)],
+        [('G4', 1.5), ('F4', 0.5), ('Eb4', 2)],
+        [('D4', 2), ('Bb3', 1), ('A3', 1)],
+        [('A3', 4)],
+    ]
+    melody(s, 'horn', 5, theme, 74)
+    melody(s, 'trombone', 13, theme[8:], 52, octave_shift=-1)
+    check_melody(s, 'horn', chords, [0, 2])
+    return s, 'hades_explore'
+
+
+# ---------------------------------------------------------------- podsvětí: boj
+def hades_combat():
+    s = Song(6, TPB // 2, 108, 16)
+    chords = ['Dm', 'Dm', 'Eb', 'Dm', 'Gm', 'Gm', 'A', 'A', 'Dm', 'Bb', 'Eb', 'A', 'Gm', 'Eb', 'A', 'A']
+    s.part('cello', 0, 42, vol=100, pan=46, rev=55)
+    s.part('cbass', 1, 43, vol=98, pan=56, rev=45)
+    s.part('choir', 2, 52, vol=84, pan=64, rev=90)
+    s.part('violins', 3, 48, vol=80, pan=92, rev=75)
+    s.part('horn', 4, 60, vol=108, pan=40, rev=80)
+    s.part('tuba', 5, 58, vol=86, pan=70, rev=60)
+    s.part('timp', 6, 47, vol=102, pan=64, rev=65)
+    s.part('taiko', 7, 116, vol=94, pan=64, rev=60)
+    s.part('trombone', 8, 57, vol=86, pan=58, rev=70)
+    s.part('drums', 9, 0, vol=70, pan=64, rev=75)
+
+    roots = {'Dm': 'D', 'Bb': 'Bb', 'Eb': 'Eb', 'Gm': 'G', 'A': 'A'}
+    stab = {'Dm': ['D4', 'F4', 'A4'], 'Bb': ['D4', 'F4', 'Bb4'], 'Eb': ['Eb4', 'G4', 'Bb4'], 'Gm': ['D4', 'G4', 'Bb4'], 'A': ['C#4', 'E4', 'A4']}
+    accents = [106, 56, 66, 98, 56, 70]
+    for b, ch in enumerate(chords, 1):
+        r = roots[ch]
+        cel = p(r + '2') if p(r + '2') >= p('C2') + 1 else p(r + '3')
+        for e in range(6):
+            s.note('cello', b, e, 0.75, cel + 12, accents[e])
+            s.note('cbass', b, e, 0.75, cel, accents[e] - 12)
+        for n in stab[ch]:
+            s.note('choir', b, 0, 2.6, p(n) - 12, 70)
+            s.note('choir', b, 3, 2.6, p(n) - 12, 62)
+        s.note('tuba', b, 0, 2.8, cel, 70)
+        s.note('tuba', b, 3, 2.8, cel, 58)
+        tim = p(r + '2') if p(r + '2') >= p('A1') else p(r + '3')
+        s.note('timp', b, 0, 1, tim, 94 if b % 4 == 1 else 82)
+        s.note('timp', b, 3, 1, tim, 70)
+        s.note('taiko', b, 0, 0.5, p('F2'), 96)
+        s.note('taiko', b, 2, 0.5, p('F2'), 58)
+        s.note('taiko', b, 3, 0.5, p('F2'), 78)
+        s.note('trombone', b, 0, 5.7, cel + 12, 54 if b <= 8 else 68)
+        if b % 4 == 0:
+            for e, v in ((3, 60), (4, 78), (5, 98)):
+                s.note('taiko', b, e, 0.5, p('F2'), v, human=False)
+    for b in (1, 9):
+        s.note('drums', b, 0, 3, 49, 70)
+    a = [
+        [('D5', 2), ('A4', 1), ('F5', 2), ('E5', 1)],
+        [('D5', 3), ('A4', 3)],
+        [('Eb5', 2), ('D5', 1), ('Bb4', 2), ('G4', 1)],
+        [('A4', 3), ('D5', 3)],
+        [('G5', 2), ('F5', 1), ('D5', 2), ('Bb4', 1)],
+        [('Bb4', 3), ('G4', 3)],
+        [('A4', 2), ('C#5', 1), ('E5', 2), ('D5', 1)],
+        [('C#5', 3), ('A4', 3)],
+        [('F5', 2), ('E5', 1), ('D5', 2), ('A4', 1)],
+        [('D5', 2), ('C5', 1), ('Bb4', 2), ('F4', 1)],
+        [('G5', 2), ('F5', 1), ('Eb5', 2), ('D5', 1)],
+        [('E5', 3), ('C#5', 3)],
+        [('D5', 2), ('Bb4', 1), ('G4', 2), ('A4', 1)],
+        [('Bb4', 2), ('G4', 1), ('Eb5', 2), ('D5', 1)],
+        [('C#5', 2), ('D5', 1), ('E5', 2), ('C#5', 1)],
+        [('A4', 6)],
+    ]
+    melody(s, 'horn', 1, a, 90, octave_shift=-1)
+    melody(s, 'violins', 9, a[8:], 72)
+    check_melody(s, 'horn', chords, [0, 3])
+    return s, 'hades_combat'
+
+
 def read_wav(path):
     with wave.open(path) as w:
         n = w.getnframes()
@@ -354,7 +482,7 @@ def render(song, name, loudness):
 
 if __name__ == '__main__':
     lengths = {}
-    for fn, loud in ((explore, 0.12), (combat, 0.14)):
+    for fn, loud in ((explore, 0.12), (combat, 0.14), (hades_explore, 0.12), (hades_combat, 0.14)):
         song, name = fn()
         lengths[name] = render(song, name, loud)
     with open(os.path.join(OUT, 'loops.json'), 'w') as f:
