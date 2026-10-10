@@ -1,6 +1,6 @@
 // Stavba úrovně: místnosti, chodby, dveře, kolize, interaktivní objekty.
 import * as THREE from 'three';
-import { mat, makeTorch, makeChest, makeSphinx, makeGrover, makeAutomaton, makeItem } from './models.js';
+import { mat, makeTorch, makeChest, makeSphinx, makeGrover, makeAutomaton, makeItem, makeLever } from './models.js';
 import { MIST_CLUES, SYMBOLS } from './content.js';
 
 // ---------- procedurální textury ----------
@@ -189,19 +189,17 @@ export function buildWorld(scene) {
     }
   }
 
-  function torch(x, y, z, rotY = 0, withLight = true) {
+  function torch(x, y, z, withLight = true) {
     const t = makeTorch();
     t.position.set(x, y, z);
-    t.rotation.y = rotY;
-    t.rotation.x = 0;
     scene.add(t);
     if (withLight) {
-      const l = new THREE.PointLight(0xff9a40, 18, 14, 1.6);
-      l.position.set(x, y + 0.6, z);
+      const l = new THREE.PointLight(0xff9a40, 20, 15, 1.6);
+      l.position.set(x + (x > 0 ? -0.4 : x < -0 ? 0.4 : 0), y + 0.7, z);
       scene.add(l);
-      animated.push((time) => { l.intensity = 16 + Math.sin(time * 9 + x) * 2 + Math.sin(time * 23 + z) * 1.5; });
+      animated.push((time) => { l.intensity = 18 + Math.sin(time * 9 + x) * 2 + Math.sin(time * 23 + z) * 1.5; });
     }
-    animated.push((time) => { t.userData.flame.scale.y = 1 + Math.sin(time * 15 + x * 3) * 0.15; });
+    animated.push((time) => { t.userData.flame.scale.y = 1.8 + Math.sin(time * 15 + x * 3) * 0.25; });
   }
 
   function plane(tex, w, h, x, y, z, rotY) {
@@ -218,58 +216,135 @@ export function buildWorld(scene) {
     return it;
   }
 
+  const marble = mat(0xece6da, { roughness: 0.45 });
+  function column(x, z, h, r = 0.45) {
+    const g = new THREE.Group();
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.9, r, h - 0.6, 24), marble);
+    shaft.position.y = h / 2;
+    g.add(shaft);
+    for (const [y, s] of [[0.15, 1.35], [h - 0.15, 1.45]]) {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(r * s, r * s, 0.3, 24), marble);
+      c.position.y = y;
+      g.add(c);
+    }
+    g.position.set(x, 0, z);
+    g.traverse((o) => { o.castShadow = true; o.receiveShadow = true; });
+    scene.add(g);
+    return g;
+  }
+
+  // Nášlapné dlaždice a páky: výsledek se losuje při startu hry.
+  const triggers = [];
+  function plate(id, x, z, room) {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.65, 0.06, 24), mat(0xa08a5a, { roughness: 0.5, metalness: 0.3, emissive: 0x3a2a00, emissiveIntensity: 0.4 }));
+    m.position.set(x, 0.03, z);
+    m.receiveShadow = true;
+    scene.add(m);
+    const sym = plane(textTexture(['Δ'], { w: 128, h: 128, font: 'bold 80px Georgia', color: '#ffd070', glow: '#ff9900' }), 0.8, 0.8, x, 0.07, z, 0);
+    sym.rotation.x = -Math.PI / 2;
+    triggers.push({ id, kind: 'plate', pos: new THREE.Vector3(x, 0, z), mesh: m, room, used: false });
+  }
+  function lever(id, x, z, rotY, room) {
+    const l = makeLever();
+    l.position.set(x, 0, z);
+    l.rotation.y = rotY;
+    scene.add(l);
+    const it = addInteract(id, x + Math.sin(rotY) * 0.6, 1.2, z + Math.cos(rotY) * 0.6, 'Zatáhnout za páku', 1.8);
+    triggers.push({ id, kind: 'lever', pos: it.pos.clone(), mesh: l, room, used: false, interact: it });
+  }
+
   // ===== 1) Vstupní síň =====
   room(-8, 0, 8, 16, { openings: [{ side: 'n', c: 0, w: 2.4 }] });
-  torch(-7.7, 2.2, 6, 0); torch(7.7, 2.2, 6, 0); torch(-7.7, 2.2, 13, 0, false);
-  // zával na jihu
-  const rubbleMat = mat(0x6a5a48);
-  for (let i = 0; i < 14; i++) {
-    const s = 0.5 + Math.random() * 0.9;
-    const r = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), rubbleMat);
-    r.position.set(-3 + Math.random() * 6, s * 0.5, 0.3 + Math.random() * 1.2);
+  torch(-7.7, 2.2, 6); torch(7.7, 2.2, 6); torch(-7.7, 2.2, 13.5, false);
+  const rubbleMat = mat(0x6a5a48, { roughness: 0.95 });
+  for (let i = 0; i < 16; i++) {
+    const s = 0.4 + Math.random() * 0.8;
+    const r = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 1), rubbleMat);
+    r.position.set(-3 + Math.random() * 6, s * 0.45, 0.3 + Math.random() * 1.2);
     r.rotation.set(Math.random() * 3, Math.random() * 3, 0);
+    r.scale.y = 0.7;
     r.castShadow = true;
     scene.add(r);
   }
   box(-3.5, 0, 0, 3.5, 1.2, 1.6, mat(0x6a5a48), { solid: false }).mesh.visible = false;
   addInteract('rubble', 0, 1, 1.8, 'Prozkoumat zával');
-  // bedny s klíčem
-  const crate = mat(0x7a5a32);
+  const crate = mat(0x7a5a32, { roughness: 0.85 });
   box(4, 0, 11, 6, 1.2, 13, crate);
   box(5.5, 0, 13.5, 7.5, 2.3, 15.5, crate);
   box(-7.5, 0, 14, -6, 1, 15.5, crate);
   // socha Athény
   const statue = new THREE.Group();
-  const marble = mat(0xe8e4dc);
-  const ped = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 1.2), marble); ped.position.y = 0.4; statue.add(ped);
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.45, 1.8, 8), marble); body.position.y = 1.7; statue.add(body);
-  const hd = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 6), marble); hd.position.y = 2.8; statue.add(hd);
-  const helm = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.4, 6), marble); helm.position.y = 3.05; statue.add(helm);
-  const spear = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.6, 5), mat(0xc8a050)); spear.position.set(0.45, 1.9, 0); statue.add(spear);
+  const add = (geo, x, y, z) => { const m = new THREE.Mesh(geo, marble); m.position.set(x, y, z); m.castShadow = true; statue.add(m); return m; };
+  add(new THREE.CylinderGeometry(0.7, 0.75, 0.8, 24), 0, 0.4, 0);
+  add(new THREE.CylinderGeometry(0.28, 0.5, 1.8, 24), 0, 1.7, 0);
+  add(new THREE.SphereGeometry(0.3, 20, 14), 0, 2.45, 0).scale.set(1.3, 0.8, 1);
+  add(new THREE.SphereGeometry(0.22, 20, 14), 0, 2.85, 0);
+  add(new THREE.SphereGeometry(0.24, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.5), 0, 2.92, 0);
+  add(new THREE.BoxGeometry(0.04, 0.3, 0.45), 0, 3.2, 0);
+  add(new THREE.CylinderGeometry(0.03, 0.03, 2.8, 8), 0.5, 1.9, 0);
+  add(new THREE.CylinderGeometry(0.35, 0.35, 0.06, 24), -0.45, 1.6, 0.15).rotation.z = Math.PI / 2;
   statue.position.set(-6.5, 0, 3);
-  statue.traverse((o) => { o.castShadow = true; });
+  statue.rotation.y = 0.6;
   scene.add(statue);
-  box(-7.1, 0, 2.4, -5.9, 3, 3.6, marble, { solid: false }).mesh.visible = false;
+  box(-7.2, 0, 2.3, -5.8, 3, 3.7, marble, { solid: false }).mesh.visible = false;
   addInteract('statue', -6.5, 1.2, 3, 'Prozkoumat sochu');
+  // amfora
+  const amph = new THREE.Mesh(new THREE.LatheGeometry([[0, 0], [0.18, 0.02], [0.32, 0.3], [0.34, 0.55], [0.2, 0.85], [0.12, 1.0], [0.16, 1.1]].map(([x, y]) => new THREE.Vector2(x, y)), 24), mat(0xb8582a, { roughness: 0.6 }));
+  amph.position.set(4.5, 0, 2.5);
+  amph.castShadow = true;
+  scene.add(amph);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.345, 0.345, 0.15, 24, 1, true), mat(0x1a1a1a));
+  band.position.set(4.5, 0.5, 2.5);
+  scene.add(band);
+  addInteract('amphora', 4.5, 0.8, 2.5, 'Prohlédnout amforu', 1.8);
+  // Daidalova tabulka s kódem
+  const plaqueTex = textTexture(['ΔΑΙΔΑΛΟΣ', '3. · 1. · 4. · 2.'], { w: 1024, h: 512, font: 'bold 120px Georgia', color: '#ffe0a0', glow: '#a06000', bg: '#5a3a18' });
+  plane(plaqueTex, 2.6, 1.3, -4.5, 2.2, 15.96, Math.PI);
+  addInteract('plaque', -4.5, 1.5, 15.2, 'Přečíst bronzovou tabulku');
+  // luk na stojanu
+  const rack = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.6, 1.4), mat(0x5a3a1a));
+  rack.position.set(7.9, 1.2, 4);
+  scene.add(rack);
+  addInteract('bowRack', 7.2, 1.2, 4, 'Prozkoumat stojan', 1.6).enabled = false;
+  // skrytý výklenek (Mlha) s destičkou lyry
+  // klenutý výklenek, který odhalí jen Hekatin amulet
+  const nicheTex = canvasTex(256, 320, (g, w, h) => {
+    const arch = () => { g.beginPath(); g.moveTo(38, h - 10); g.lineTo(38, 120); g.arc(w / 2, 120, w / 2 - 38, Math.PI, 0); g.lineTo(w - 38, h - 10); g.closePath(); };
+    const glow = g.createRadialGradient(w / 2, h * 0.55, 10, w / 2, h * 0.55, w * 0.75);
+    glow.addColorStop(0, 'rgba(170,140,255,0.55)'); glow.addColorStop(1, 'rgba(90,60,200,0)');
+    g.fillStyle = glow; g.fillRect(0, 0, w, h);
+    arch(); g.fillStyle = '#0c0818'; g.fill();
+    g.lineWidth = 10; g.strokeStyle = '#b8a0ff'; g.shadowColor = '#8a6aff'; g.shadowBlur = 24; arch(); g.stroke();
+  });
+  const nicheMat = new THREE.MeshBasicMaterial({ map: nicheTex, transparent: true, depthWrite: false });
+  const nicheGlow = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 2), nicheMat);
+  nicheGlow.position.set(-7.97, 1.3, 10.5);
+  nicheGlow.rotation.y = Math.PI / 2;
+  nicheGlow.visible = false;
+  scene.add(nicheGlow);
+  mist.reveal.push(nicheGlow);
 
   const grover = makeGrover();
-  grover.position.set(-5, 0, 10);
+  grover.position.set(-4.5, 0, 7);
   grover.rotation.y = Math.PI / 2;
   scene.add(grover);
-  addInteract('grover', -5, 1.2, 10, 'Promluvit se satyrem');
-  animated.push((time) => { grover.position.y = Math.abs(Math.sin(time * 2)) * 0.05; });
+  addInteract('grover', -4.5, 1.2, 7, 'Promluvit se satyrem');
+  animated.push((time) => {
+    grover.position.y = Math.abs(Math.sin(time * 2)) * 0.05;
+    grover.userData.arms[1].rotation.z = 0.2 + Math.sin(time * 3) * 0.15;
+  });
 
-  // dveře A
   const doorA = box(-1.2, 0, 16, 1.2, 3, 16.5, mat(0x7a4a22, { metalness: 0.2 }));
   addInteract('doorA', 0, 1.5, 15.4, 'Otevřít dveře');
+  plate('plate1', 2.5, 8.5, 'entrance');
 
   // ===== 2) Chodba ke Sfinze =====
   room(-1.5, 16.5, 1.5, 22, { skip: ['n', 's'], h: 3.5, frieze: false });
-  torch(-1.3, 2, 19, 0);
+  torch(-1.3, 2, 19);
 
   // ===== 3) Síň Sfingy =====
   room(-7, 22.5, 7, 34, { openings: [{ side: 's', c: 0, w: 3 }, { side: 'n', c: 0, w: 3 }], h: 6 });
-  torch(-6.7, 2.4, 25, 0); torch(6.7, 2.4, 25, 0); torch(-6.7, 2.4, 32, 0, false); torch(6.7, 2.4, 32, 0, false);
+  torch(-6.7, 2.4, 25); torch(6.7, 2.4, 25); torch(-6.7, 2.4, 32, false); torch(6.7, 2.4, 32, false);
   const sphinx = makeSphinx();
   sphinx.position.set(0, 0, 31.6);
   sphinx.rotation.y = Math.PI;
@@ -277,35 +352,79 @@ export function buildWorld(scene) {
   const sphinxBlock = box(-2.2, 0, 30, 2.2, 3, 34, mat(0x000000), { solid: false });
   sphinxBlock.mesh.visible = false;
   const sphinxInt = addInteract('sphinx', 0, 1.5, 29.5, 'Promluvit se Sfingou', 2.5);
-  // sloupy pro atmosféru
-  for (const x of [-5, 5]) for (const z of [26, 31]) box(x - 0.4, 0, z - 0.4, x + 0.4, 6, z + 0.4, mat(0xd8d0c0));
+  for (const x of [-5, 5]) for (const z of [26, 31]) {
+    column(x, z, 6);
+    colliders.push({ min: new THREE.Vector3(x - 0.5, 0, z - 0.5), max: new THREE.Vector3(x + 0.5, 6, z + 0.5), active: true });
+  }
+  // freska s Oidipem
+  const frescoTex = canvasTex(512, 384, (g, w, h) => {
+    g.fillStyle = '#c8a878'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#a07a48'; g.fillRect(0, 280, w, 104);
+    g.fillStyle = '#c9a25a'; g.beginPath(); g.ellipse(340, 210, 110, 55, 0, 0, 7); g.fill();
+    g.beginPath(); g.arc(250, 150, 34, 0, 7); g.fill();
+    g.fillStyle = '#e8d8b0'; g.beginPath(); g.moveTo(330, 170); g.quadraticCurveTo(420, 60, 480, 110); g.quadraticCurveTo(420, 150, 360, 190); g.fill();
+    g.fillStyle = '#6a3a2a'; g.fillRect(105, 140, 40, 120);
+    g.beginPath(); g.arc(125, 120, 24, 0, 7); g.fill();
+    g.fillStyle = '#c86a4a'; g.beginPath(); g.ellipse(112, 268, 22, 12, 0, 0, 7); g.fill(); g.beginPath(); g.ellipse(140, 268, 22, 12, 0, 0, 7); g.fill();
+    g.strokeStyle = '#3a2a1a'; g.lineWidth = 5; g.beginPath(); g.moveTo(150, 170); g.lineTo(190, 150); g.stroke();
+    g.font = 'bold 54px Georgia'; g.fillStyle = '#3a1a0a'; g.textAlign = 'center'; g.fillText('ΟΙΔΙΠΟΥΣ', w / 2, 350);
+    g.strokeStyle = '#7a4a1a'; g.lineWidth = 12; g.strokeRect(0, 0, w, h);
+  });
+  plane(frescoTex, 3.2, 2.4, -6.96, 2.6, 28.5, Math.PI / 2);
+  addInteract('oedipus', -6.2, 1.5, 28.5, 'Prohlédnout fresku', 2.2);
+  lever('lever1', 6.95, 28.5, -Math.PI / 2, 'sphinx');
 
   // ===== 4) Chodba pekelných psů =====
   room(-3.5, 34.5, 3.5, 52, { skip: ['n', 's'], h: 4 });
-  torch(-3.2, 2.2, 38, 0); torch(3.2, 2.2, 45, 0); torch(-3.2, 2.2, 50, 0, false);
+  torch(-3.2, 2.2, 38); torch(3.2, 2.2, 45); torch(-3.2, 2.2, 50, false);
   box(-3.5, 0, 41, -2.2, 4, 42, mat(0x8a7a64)); // výstupky
   box(2.2, 0, 47, 3.5, 4, 48, mat(0x8a7a64));
-  // kosti
   for (let i = 0; i < 6; i++) {
-    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.5, 5), mat(0xe8e0c8));
+    const b = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.4, 4, 8), mat(0xe8e0c8));
     b.position.set(-2.5 + Math.random() * 5, 0.05, 38 + Math.random() * 12);
     b.rotation.set(Math.PI / 2, 0, Math.random() * 3);
     scene.add(b);
   }
+  const scratch = textTexture(['Ne všichni pekelní psi', 'jsou zlí. – P. J.'], { w: 512, h: 256, font: 'italic 40px Georgia', color: '#e8dcc0', glow: '#000' });
+  plane(scratch, 2.2, 1.1, 3.46, 1.6, 39.5, -Math.PI / 2);
+  addInteract('oleary', 2.8, 1.5, 39.5, 'Prohlédnout nápis', 1.8);
+  plate('plate2', -1.5, 37.5, 'hounds');
+  // tajná skrýš (jen s amuletem)
+  const secretGlow = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.6), nicheMat);
+  secretGlow.position.set(-3.46, 1.2, 49);
+  secretGlow.rotation.y = Math.PI / 2;
+  secretGlow.visible = false;
+  scene.add(secretGlow);
+  mist.reveal.push(secretGlow);
+  const secretInt = addInteract('secret', -2.9, 1.2, 49, 'Prohledat tajnou skrýš', 1.8);
+  secretInt.enabled = false;
 
   // ===== 5) Hekatina svatyně (Mlha) =====
   room(-8, 52.5, 8, 64, { openings: [{ side: 's', c: 0, w: 3.5 }, { side: 'e', c: 58, w: 3 }], h: 5 });
-  const mistLight = new THREE.PointLight(0x8a7aff, 10, 16, 1.5);
+  const mistLight = new THREE.PointLight(0x8a7aff, 12, 16, 1.5);
   mistLight.position.set(0, 3.5, 58);
   scene.add(mistLight);
-  torch(-7.7, 2.2, 55, 0, false); torch(-7.7, 2.2, 62, 0);
-  // oltář
+  torch(-7.7, 2.2, 54.5, false); torch(7.7, 2.2, 54.5);
   box(-1, 0, 62.5, 1, 1, 63.8, mat(0x2a2a3a));
-  const brazier = new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.5, 8, 1, true), mat(0x9a7aff, { emissive: 0x6a4aff, emissiveIntensity: 1.2 }));
-  brazier.position.set(0, 1.3, 63.1);
-  brazier.rotation.x = Math.PI;
+  const brazier = new THREE.Mesh(new THREE.SphereGeometry(0.5, 24, 12, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), mat(0x3a3050, { metalness: 0.6, roughness: 0.3 }));
+  brazier.position.set(0, 1.5, 63.1);
   scene.add(brazier);
-  animated.push((time) => { mistLight.intensity = 9 + Math.sin(time * 2) * 2; });
+  const fire = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 12), new THREE.MeshBasicMaterial({ color: 0xa080ff }));
+  fire.position.set(0, 1.55, 63.1);
+  scene.add(fire);
+  animated.push((time) => { mistLight.intensity = 11 + Math.sin(time * 2) * 2; fire.scale.y = 1.2 + Math.sin(time * 8) * 0.25; });
+  // socha Hekaty
+  const hek = new THREE.Group();
+  const dark = mat(0x3a3448, { roughness: 0.4, metalness: 0.3 });
+  const hm = (geo, x, y, z) => { const m = new THREE.Mesh(geo, dark); m.position.set(x, y, z); m.castShadow = true; hek.add(m); return m; };
+  hm(new THREE.CylinderGeometry(0.6, 0.65, 0.6, 24), 0, 0.3, 0);
+  hm(new THREE.CylinderGeometry(0.25, 0.55, 2, 24), 0, 1.6, 0);
+  for (let i = 0; i < 3; i++) hm(new THREE.SphereGeometry(0.17, 16, 12), Math.cos(i * 2.09) * 0.18, 2.75, Math.sin(i * 2.09) * 0.18);
+  hek.position.set(-6.3, 0, 62.5);
+  scene.add(hek);
+  box(-6.95, 0, 61.85, -5.65, 2.8, 63.15, dark, { solid: false }).mesh.visible = false;
+  addInteract('hecate', -6.3, 1.2, 61.5, 'Prohlédnout sochu', 1.8);
+  lever('lever2', -7.95, 60, Math.PI / 2, 'mist');
 
   const chest = makeChest();
   chest.position.set(5.5, 0, 62.6);
@@ -321,57 +440,79 @@ export function buildWorld(scene) {
   addInteract('automaton', -5.5, 1.2, 55.5, 'Promluvit s automatem');
   animated.push((time) => { automaton.userData.gear.rotation.z = time * 2; automaton.userData.head.rotation.y = Math.sin(time * 0.7) * 0.8; });
 
-  // nápisy viditelné jen s amuletem
+  // nápisy viditelné jen s amuletem: 2 řady na severní zdi
+  const clueSpots = [[-5.2, 3.6], [0, 3.6], [5.2, 3.6], [-4, 2.0], [3.6, 2.0]];
   MIST_CLUES.forEach((clue, i) => {
-    const tex = textTexture(wrap(clue, 16), { w: 1024, h: 512, font: 'bold 96px Georgia' });
-    const p = plane(tex, 4.6, 2.3, [-5, 0, 5][i], i === 1 ? 3.2 : 2.3, 63.95, Math.PI);
+    const last = i === MIST_CLUES.length - 1;
+    const tex = textTexture(wrap(clue, last ? 22 : 16), { w: 1024, h: 512, font: `bold ${last ? 72 : 88}px Georgia`, color: last ? '#ffd8a0' : '#cfe0ff', glow: last ? '#ff8800' : '#7a8cff' });
+    const p = plane(tex, last ? 4.6 : 3.6, last ? 2.3 : 1.8, clueSpots[i][0], clueSpots[i][1], 63.95, Math.PI);
     p.visible = false;
     mist.reveal.push(p);
   });
-  // falešné dveře na západě (iluze Mlhy)
   const fakeDoor = box(-8, 0, 56.8, -7.8, 3, 59.2, mat(0x7a4a22), { collide: false, solid: false });
   mist.hide.push(fakeDoor.mesh);
   const fakeInt = addInteract('fakeDoor', -7.2, 1.5, 58, 'Prozkoumat dveře');
   const painting = plane(textTexture(['Malba dveří'], { color: '#c0b090', glow: '#000', font: 'italic 36px Georgia' }), 2.4, 1.2, -7.95, 1.5, 58, Math.PI / 2);
   painting.visible = false;
   mist.reveal.push(painting);
-  // skrytá zeď na východě: bez amuletu vypadá jako zeď a nejde projít
   const mistWall = box(8, 0, 56.5, 8.5, 3, 59.5, texMat(stoneTex, 1, 1));
   mist.wall = mistWall;
   const mistWallInt = addInteract('mistWall', 7.4, 1.5, 58, 'Prozkoumat zeď');
 
   // ===== 6) Chodba se symbolovým zámkem =====
   room(8.5, 56.5, 14, 59.5, { skip: ['e', 'w'], h: 3.2, frieze: false });
-  const lockDoor = box(8.55, 0, 56.5, 8.9, 3, 59.5, mat(0x9a7a3a, { metalness: 0.5, roughness: 0.4 }));
-  const symTex = textTexture([SYMBOLS.map((s) => s.icon).join(' '), '? ? ? ?'], { w: 512, h: 256, font: '48px serif', color: '#fff2c0', glow: '#ffaa00' });
+  const lockDoor = box(8.55, 0, 56.5, 8.9, 3, 59.5, mat(0x9a7a3a, { metalness: 0.6, roughness: 0.35 }));
+  const symTex = textTexture([SYMBOLS.map((s) => s.icon).join(' '), '□ □ □ □'], { w: 512, h: 256, font: '48px serif', color: '#fff2c0', glow: '#ffaa00' });
   const symPlane = plane(symTex, 2.4, 1.2, 8.53, 1.8, 58, -Math.PI / 2);
   symPlane.visible = false;
   mist.reveal.push(symPlane);
   const lockInt = addInteract('lock', 7.6, 1.5, 58, 'Použít symbolový zámek');
   lockInt.enabled = false;
 
-  // ===== 7) Aréna Minotaura (otevřený prostor pod nebem) =====
+  // ===== 7) Aréna Minotaura =====
   room(14.5, 44, 44, 72, { openings: [{ side: 'w', c: 58, w: 3 }, { side: 'e', c: 58, w: 3.5, h: 4 }], h: 7, ceiling: false, floor: sandTex });
   const pillars = [];
-  for (const [x, z] of [[22, 51], [36, 51], [22, 65], [36, 65], [29, 58]]) {
-    if (x === 29) continue; // střed nechat volný
-    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.0, 6, 10), mat(0xe8e2d4));
-    p.position.set(x, 3, z);
-    p.castShadow = true; p.receiveShadow = true;
-    scene.add(p);
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.4, 2.2), mat(0xe8e2d4));
-    cap.position.set(x, 6.1, z); cap.castShadow = true; scene.add(cap);
-    const c = { min: new THREE.Vector3(x - 0.9, 0, z - 0.9), max: new THREE.Vector3(x + 0.9, 6, z + 0.9), active: true, mesh: p, pillar: true };
+  for (const [x, z] of [[22, 51], [36, 51], [22, 65], [36, 65]]) {
+    const g = column(x, z, 6.2, 0.95);
+    const p = g.children[0];
+    const c = { min: new THREE.Vector3(x - 0.95, 0, z - 0.95), max: new THREE.Vector3(x + 0.95, 6, z + 0.95), active: true, mesh: p, pillar: true };
     colliders.push(c);
     solids.push(p);
     pillars.push({ x, z, mesh: p, collider: c, cracks: 0 });
   }
-  torch(14.8, 2.5, 50, 0); torch(14.8, 2.5, 66, 0); torch(43.7, 2.5, 52, 0); torch(43.7, 2.5, 64, 0);
+  torch(14.8, 2.5, 50); torch(14.8, 2.5, 66); torch(43.7, 2.5, 52); torch(43.7, 2.5, 64);
+  // hromada přileb
+  for (let i = 0; i < 7; i++) {
+    const hlm = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), mat(0xb08a3a, { metalness: 0.8, roughness: 0.35 }));
+    hlm.position.set(17 + Math.random() * 1.2, 0.1 + (i > 4 ? 0.25 : 0), 46 + Math.random() * 1.2);
+    hlm.rotation.set(Math.random(), Math.random() * 3, Math.random() - 0.5);
+    hlm.castShadow = true;
+    scene.add(hlm);
+  }
+  addInteract('helmets', 17.6, 0.6, 46.6, 'Prohlédnout přilby', 1.8);
+  plate('plate3', 29, 62, 'arena');
+  // Daidalova skříň s Ariadninou nití
+  const cage = new THREE.Group();
+  const bronze = mat(0x9a6a2a, { metalness: 0.8, roughness: 0.3 });
+  const cb = (geo, x, y, z) => { const m = new THREE.Mesh(geo, bronze); m.position.set(x, y, z); m.castShadow = true; cage.add(m); return m; };
+  cb(new THREE.BoxGeometry(1.8, 0.2, 1.4), 0, 0.1, 0);
+  cb(new THREE.BoxGeometry(1.8, 0.2, 1.4), 0, 2.1, 0);
+  for (let i = 0; i < 7; i++) cb(new THREE.CylinderGeometry(0.03, 0.03, 1.9, 8), -0.8 + i * 0.27, 1.1, 0.68);
+  for (const x of [-0.85, 0.85]) cb(new THREE.CylinderGeometry(0.05, 0.05, 1.9, 8), x, 1.1, -0.65);
+  const dialTex = textTexture(['Δ ? ? ? ?'], { w: 512, h: 128, font: 'bold 64px Georgia', color: '#ffe0a0', glow: '#ff9900', bg: '#3a2410' });
+  const dialPlane = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.3), new THREE.MeshBasicMaterial({ map: dialTex }));
+  dialPlane.position.set(0, 2.45, 0.71);
+  cage.add(dialPlane);
+  cage.position.set(40.5, 0, 69.5);
+  cage.rotation.y = Math.PI;
+  scene.add(cage);
+  const cageBars = cage.children.slice(2, 9);
+  box(39.6, 0, 68.8, 41.4, 2.2, 70.2, bronze, { solid: false }).mesh.visible = false;
+  const cageInt = addInteract('cage', 40.5, 1.2, 68.0, 'Otevřít Daidalovu skříň', 2.2);
   // brána Δ
   const gateTex = textTexture(['Δ'], { w: 256, h: 256, font: 'bold 160px Georgia', color: '#ffe08a', glow: '#ff9900', bg: '#5a3a1a' });
-  const gate = box(44, 0, 56.25, 44.5, 4, 59.75, new THREE.MeshStandardMaterial({ map: gateTex, metalness: 0.4, roughness: 0.5 }));
+  const gate = box(44, 0, 56.25, 44.5, 4, 59.75, new THREE.MeshStandardMaterial({ map: gateTex, metalness: 0.4, roughness: 0.5, emissive: 0x3a2000, emissiveIntensity: 0.4 }));
   addInteract('gate', 43.2, 1.5, 58, 'Prozkoumat Daidalovu bránu', 2.4);
-  // mozaika s Ikarem
   const mosaicTex = canvasTex(512, 256, (g, w, h) => {
     g.fillStyle = '#2a5a8a'; g.fillRect(0, 0, w, h);
     g.fillStyle = '#ffd040'; g.beginPath(); g.arc(420, 60, 36, 0, 7); g.fill();
@@ -395,8 +536,16 @@ export function buildWorld(scene) {
   plane(sign, 4, 2, 55.9, 3, 58, -Math.PI / 2);
 
   return {
-    colliders, solids, interactables, mist, animated, pillars,
+    colliders, solids, interactables, mist, animated, pillars, triggers,
     doorA, sphinx, sphinxBlock, sphinxInt, chest, mistWall, mistWallInt, fakeInt, lockDoor, lockInt, gate,
+    cage, cageBars, cageInt, secretInt,
+    rooms: {
+      entrance: [-8, 0, 8, 16], sphinx: [-7, 22.5, 7, 34], hounds: [-3.5, 34.5, 3.5, 52], mist: [-8, 52.5, 8, 64], arena: [14.5, 44, 44, 72],
+    },
+    wanderPaths: {
+      theseus: [[-3.5, 24], [3.5, 24], [3.5, 27.5], [-3.5, 27.5]],
+      ikaros: [[9.5, 58], [13.2, 58]],
+    },
     spawn: {
       start: new THREE.Vector3(0, 0, 5),
       sphinx: new THREE.Vector3(0, 0, 36),
@@ -404,9 +553,16 @@ export function buildWorld(scene) {
       arena: new THREE.Vector3(17, 0, 58),
     },
     itemSpots: {
+      bow: new THREE.Vector3(7.5, 1.3, 4),
       bronzeKey: new THREE.Vector3(6.5, 2.75, 14.5),
+      lyraTile: new THREE.Vector3(-7.6, 1.3, 10.5),
       ambrosia1: new THREE.Vector3(-2.6, 0.6, 36.5),
       ambrosia2: new THREE.Vector3(16, 0.6, 70),
+      quiver1: new THREE.Vector3(2.6, 0.5, 43.5),
+      quiver2: new THREE.Vector3(6.5, 0.5, 53.5),
+      quiver3: new THREE.Vector3(16, 0.5, 46.5),
+      quiver4: new THREE.Vector3(42.5, 0.5, 46),
+      thread: new THREE.Vector3(40.5, 1.0, 69.5),
     },
     makeItem,
   };

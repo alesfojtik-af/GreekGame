@@ -5,48 +5,75 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Útěk z Labyrintu</title>
 <style>
-  :root { --gold: #e8c547; --ink: #f4ead2; --panel: rgba(20, 14, 8, 0.92); --accent: #f07a1a; color-scheme: dark; }
+  /* Rozvržení: celá obrazovka je 3D scéna, HUD po okrajích, panely dole uprostřed. */
+  :root { --gold: #e8c547; --ink: #f4ead2; --muted: #c8b890; --panel: rgba(20, 14, 8, 0.9); --line: #8a6a2a; --good: #9be08a; --bad: #ff8a7a; color-scheme: dark; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0d0905; color: var(--ink); font-family: Georgia, 'Times New Roman', serif; }
   canvas { display: block; }
   .hidden { display: none !important; }
   #hud { position: fixed; inset: 0; pointer-events: none; }
-  #hearts { position: absolute; top: 14px; left: 16px; font-size: 26px; letter-spacing: 2px; }
-  #timer { position: absolute; top: 16px; right: 16px; font-size: 18px; background: rgba(0,0,0,.45); padding: 4px 10px; border-radius: 6px; }
-  #objective { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.55); padding: 6px 14px; border-radius: 8px; border: 1px solid #6a4a20; font-size: 16px; max-width: 60vw; text-align: center; }
-  #prompt { position: absolute; bottom: 110px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.65); padding: 8px 16px; border-radius: 8px; border: 1px solid var(--gold); font-size: 18px; }
-  #toast { position: absolute; top: 104px; left: 50%; transform: translateX(-50%); background: rgba(30,20,10,.88); border: 1px solid var(--gold); padding: 10px 18px; border-radius: 8px; font-size: 17px; max-width: 70vw; text-align: center; opacity: 0; transition: opacity .3s; }
-  #toast.show { opacity: 1; }
-  #inventory { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; }
-  .slot-inv { width: 64px; height: 64px; background: rgba(0,0,0,.55); border: 2px solid #8a6a2a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 30px; position: relative; }
+  #stats { position: absolute; top: 12px; left: 14px; display: flex; flex-direction: column; gap: 4px; }
+  #hearts { font-size: 24px; letter-spacing: 2px; }
+  #score, #arrows { font-size: 18px; background: rgba(0,0,0,.5); padding: 2px 10px; border-radius: 6px; width: fit-content; font-variant-numeric: tabular-nums; }
+  #score { color: var(--gold); }
+  #timer { position: absolute; top: 14px; right: 14px; font-size: 18px; background: rgba(0,0,0,.5); padding: 4px 10px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+  #questbox { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.6); padding: 6px 16px; border-radius: 8px; border: 1px solid var(--line); max-width: min(560px, 50vw); text-align: center; }
+  #questbox small { display: block; color: var(--gold); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; }
+  #objective { font-size: 15px; }
+  #controlsHud { position: absolute; top: 56px; right: 14px; display: grid; grid-template-columns: auto auto; gap: 3px 10px; font-size: 12px; background: rgba(0,0,0,.45); padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(138,106,42,.6); color: var(--muted); }
+  #controlsHud kbd, .controls kbd { background: #2a1a0a; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; color: var(--ink); font-family: ui-monospace, monospace; font-size: 11px; text-align: center; }
+  #prompt { position: absolute; bottom: 132px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.7); padding: 8px 16px; border-radius: 8px; border: 1px solid var(--gold); font-size: 18px; }
+  #toast { position: absolute; top: 96px; left: 50%; transform: translateX(-50%); background: rgba(30,20,10,.9); border: 1px solid var(--gold); padding: 10px 18px; border-radius: 8px; font-size: 17px; max-width: min(640px, 70vw); text-align: center; opacity: 0; transition: opacity .3s; }
+  #toast.show, #speech.show { opacity: 1; }
+  #speech { position: absolute; top: 46%; left: 50%; transform: translateX(-50%); background: rgba(250,240,220,.95); color: #2a1a0a; padding: 8px 14px; border-radius: 14px; font-size: 16px; max-width: 420px; opacity: 0; transition: opacity .25s; }
+  #popups { position: absolute; top: 120px; left: 14px; display: flex; flex-direction: column; gap: 4px; }
+  .popup { font-size: 16px; font-weight: bold; animation: rise 2.2s ease-out forwards; text-shadow: 0 1px 3px #000; }
+  .popup.plus { color: var(--gold); } .popup.minus { color: var(--bad); }
+  @keyframes rise { 0% { opacity: 0; transform: translateY(8px); } 15% { opacity: 1; transform: none; } 75% { opacity: 1; } 100% { opacity: 0; transform: translateY(-12px); } }
+  #invwrap { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  #invhint { font-size: 13px; color: var(--muted); background: rgba(0,0,0,.5); padding: 3px 10px; border-radius: 6px; max-width: 70vw; text-align: center; }
+  #inventory { display: flex; gap: 8px; }
+  .slot-inv { width: 60px; height: 60px; background: rgba(0,0,0,.55); border: 2px solid var(--line); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 28px; position: relative; }
+  .slot-inv.sel { border-color: var(--gold); box-shadow: 0 0 12px rgba(232,197,71,.6); background: rgba(60,40,10,.7); }
+  .slot-inv i { position: absolute; top: 1px; left: 5px; font-size: 11px; font-style: normal; color: var(--gold); }
   .slot-inv span { position: absolute; bottom: 2px; right: 5px; font-size: 13px; }
-  .slot-inv em { position: absolute; bottom: -18px; font-size: 10px; font-style: normal; white-space: nowrap; color: #d8c8a0; }
-  #crosshair { position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: rgba(255,255,255,.5); }
-  #boss { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); width: 360px; text-align: center; font-size: 14px; }
-  #boss .bar { height: 12px; border: 1px solid #c8a050; background: #2a0a0a; margin-top: 3px; }
+  .slot-inv em { display: none; }
+  #crosshair { position: absolute; top: 50%; left: 50%; width: 18px; height: 18px; margin: -9px; }
+  #crosshair::before, #crosshair::after { content: ''; position: absolute; background: rgba(255,255,255,.7); }
+  #crosshair::before { left: 8px; top: 0; width: 2px; height: 18px; }
+  #crosshair::after { top: 8px; left: 0; height: 2px; width: 18px; }
+  #boss { position: absolute; top: 76px; left: 50%; transform: translateX(-50%); width: 360px; max-width: 70vw; text-align: center; font-size: 13px; letter-spacing: 2px; }
+  #boss .bar { height: 12px; border: 1px solid #c8a050; background: #2a0a0a; margin-top: 3px; border-radius: 3px; overflow: hidden; }
   #bossfill { height: 100%; background: linear-gradient(90deg, #a01010, #e04020); width: 100%; transition: width .2s; }
   #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s; }
-  #panel { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); width: min(720px, 94vw); background: var(--panel); border: 2px solid var(--gold); border-radius: 12px; padding: 18px 22px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+  #panel { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); width: min(740px, 94vw); background: var(--panel); border: 2px solid var(--gold); border-radius: 12px; padding: 18px 22px; box-shadow: 0 10px 40px rgba(0,0,0,.6); max-height: 80vh; overflow-y: auto; }
   .npc-name { color: var(--gold); font-size: 20px; font-weight: bold; margin-bottom: 8px; }
   .npc-text, .question { font-size: 18px; line-height: 1.45; margin-bottom: 12px; }
   .question { background: rgba(255,255,255,.05); padding: 10px; border-left: 3px solid var(--gold); }
   .feedback { margin-bottom: 8px; font-style: italic; }
-  .feedback.ok { color: #9be08a; } .feedback.bad { color: #ff8a7a; }
+  .feedback.ok { color: var(--good); } .feedback.bad { color: var(--bad); }
   .options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
   button { font-family: inherit; font-size: 16px; background: #3a2810; color: var(--ink); border: 1px solid var(--gold); border-radius: 6px; padding: 8px 14px; cursor: pointer; }
   button:hover:not(:disabled) { background: #5a3e18; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
   button:disabled { opacity: .45; cursor: default; }
   button.leave { margin-left: auto; background: #2a1a10; }
-  .answer-row { display: flex; gap: 8px; }
-  .answer-row input { flex: 1; font-size: 18px; padding: 8px; border-radius: 6px; border: 1px solid var(--gold); background: #120c06; color: var(--ink); font-family: inherit; }
-  .micstate { min-height: 20px; font-size: 14px; color: #c8b890; margin-top: 6px; }
+  .answer-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .answer-row input { flex: 1; min-width: 180px; font-size: 18px; padding: 8px; border-radius: 6px; border: 1px solid var(--gold); background: #120c06; color: var(--ink); font-family: inherit; }
+  .micstate { min-height: 20px; font-size: 14px; color: var(--muted); margin-top: 6px; }
   .slots { display: flex; gap: 10px; justify-content: center; margin: 10px 0; }
   .slot { width: 64px; height: 64px; border: 2px dashed var(--gold); border-radius: 8px; font-size: 36px; display: flex; align-items: center; justify-content: center; }
-  .overlay { position: fixed; inset: 0; background: radial-gradient(ellipse at center, rgba(40,25,10,.94), rgba(5,3,1,.98)); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; overflow-y: auto; }
-  .overlay h1 { font-size: clamp(32px, 6vw, 60px); color: var(--gold); margin: 0 0 4px; letter-spacing: 2px; text-shadow: 0 0 20px rgba(232,197,71,.5); }
-  .overlay h2 { font-weight: normal; margin: 0 0 20px; color: #d8c8a0; }
+  .slot.greek { border-style: solid; background: #2a1a08; font-size: 40px; color: var(--gold); }
+  .wheel { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .wheel button { padding: 2px 18px; font-size: 14px; }
+  .overlay { position: fixed; inset: 0; background: radial-gradient(ellipse at center, rgba(40,25,10,.94), rgba(5,3,1,.98)); display: flex; flex-direction: column; align-items: center; justify-content: flex-start; text-align: center; padding: 24px 16px; overflow-y: auto; }
+  .overlay > * { flex-shrink: 0; }
+  .overlay h1 { font-size: clamp(32px, 6vw, 60px); color: var(--gold); margin: 12px 0 4px; letter-spacing: 2px; text-shadow: 0 0 20px rgba(232,197,71,.5); text-wrap: balance; }
+  .overlay h2 { font-weight: normal; margin: 0 0 16px; color: #d8c8a0; font-size: clamp(16px, 2.4vw, 22px); }
   .overlay p { max-width: 680px; font-size: 18px; line-height: 1.5; }
-  .parents { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin: 14px 0 20px; max-width: 900px; }
+  .name-row { display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; margin-bottom: 6px; }
+  .name-row input { font-size: 20px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--gold); background: #120c06; color: var(--ink); font-family: inherit; width: min(280px, 80vw); }
+  .parents { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin: 12px 0 16px; max-width: 900px; }
   .parent { width: 160px; padding: 12px; border: 2px solid #6a4a20; border-radius: 10px; background: rgba(0,0,0,.4); cursor: pointer; }
   .parent.sel { border-color: var(--gold); background: rgba(232,197,71,.15); }
   .parent .ic { font-size: 36px; }
@@ -54,19 +81,31 @@
   .parent small { color: #d8c8a0; }
   .big { font-size: 20px; padding: 12px 28px; margin: 6px; }
   .controls { display: grid; grid-template-columns: auto auto; gap: 4px 18px; text-align: left; font-size: 15px; margin: 14px auto; color: #d8c8a0; }
-  .controls kbd { background: #2a1a0a; border: 1px solid #8a6a2a; border-radius: 4px; padding: 1px 6px; color: var(--ink); font-family: monospace; }
+  .muted { color: var(--muted); } .small { font-size: 14px !important; }
+  .lbwrap { width: min(640px, 100%); overflow-x: auto; margin: 8px 0 12px; }
+  table.lb { width: 100%; border-collapse: collapse; font-size: 16px; font-variant-numeric: tabular-nums; }
+  table.lb th { color: var(--gold); font-weight: normal; letter-spacing: 1px; font-size: 13px; text-transform: uppercase; border-bottom: 1px solid var(--line); padding: 6px; }
+  table.lb td { padding: 6px; border-bottom: 1px solid rgba(138,106,42,.3); }
+  table.lb tr.me td { background: rgba(232,197,71,.18); color: #fff; font-weight: bold; }
+  #scoreBreakdown { display: grid; grid-template-columns: auto auto; gap: 2px 18px; text-align: left; font-size: 15px; color: #d8c8a0; margin: 4px auto 10px; font-variant-numeric: tabular-nums; }
+  #scoreBreakdown b { text-align: right; color: var(--ink); }
+  @media (max-width: 760px) { #controlsHud { display: none; } }
+  @media (prefers-reduced-motion: reduce) { .popup { animation: none; } }
 </style>
 </head>
 <body>
 <div id="hud" class="hidden">
-  <div id="hearts"></div>
-  <div id="objective"></div>
+  <div id="stats"><div id="hearts"></div><div id="score">★ 0</div><div id="arrows" class="hidden"></div></div>
+  <div id="questbox"><small>Úkol</small><div id="objective"></div></div>
   <div id="timer"></div>
+  <div id="controlsHud"></div>
   <div id="boss" class="hidden">MINOTAUROS<div class="bar"><div id="bossfill"></div></div></div>
   <div id="crosshair"></div>
+  <div id="popups"></div>
+  <div id="speech"></div>
   <div id="prompt" class="hidden"></div>
   <div id="toast"></div>
-  <div id="inventory"></div>
+  <div id="invwrap"><div id="invhint"></div><div id="inventory"></div></div>
 </div>
 <div id="flash"></div>
 <div id="panel" class="hidden"></div>
@@ -74,12 +113,15 @@
 <div id="menu" class="overlay">
   <h1>ÚTĚK Z LABYRINTU</h1>
   <h2>Escape room ve světě řeckých bohů</h2>
-  <p>Jsi nový polobůh v Táboře polokrevných. Kdo je tvůj božský rodič?</p>
+  <div class="name-row"><label for="playerName">Tvoje jméno:</label><input id="playerName" maxlength="20" autocomplete="off" placeholder="např. Aleš" /></div>
+  <p>Kdo je tvůj božský rodič?</p>
   <div class="parents" id="parents"></div>
   <div>
     <button class="big" id="btnNew">Nová hra</button>
     <button class="big hidden" id="btnContinue">Pokračovat</button>
+    <button class="big" id="btnHall">Síň slávy</button>
   </div>
+  <div id="hallMenu" class="lbwrap hidden"></div>
   <div class="controls" id="controlsMenu"></div>
 </div>
 
@@ -98,14 +140,16 @@
 
 <div id="dead" class="overlay hidden">
   <h1>Padl(a) jsi...</h1>
-  <p>Ale polobozi se nevzdávají. Vracíš se kousek zpět ke kontrolnímu bodu.</p>
+  <p>Ale polobozi se nevzdávají. Vracíš se kousek zpět ke kontrolnímu bodu. (−250 bodů)</p>
 </div>
 
 <div id="win" class="overlay hidden">
   <h1>UNIKL(A) JSI!</h1>
   <h2>Ariadnina nit tě vyvedla z Labyrintu zpět do Tábora polokrevných.</h2>
   <p id="winStats"></p>
-  <p>Chiron už čeká s další výpravou... (další escape room příště)</p>
+  <div id="scoreBreakdown"></div>
+  <h2>Síň slávy</h2>
+  <div id="hallWin" class="lbwrap"><p class="muted">Načítám tabulku...</p></div>
   <button class="big" id="btnAgain">Hrát znovu</button>
 </div>
 
