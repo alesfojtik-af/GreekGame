@@ -1,14 +1,42 @@
-// Zvuky a epická hudba syntetizované přes Web Audio, bez externích souborů.
-// Hudba má tři nálady: průzkum (pochod s bubny a žesti), boj (rychlé bubny) a hádanky (tichá lyra).
+// Zvuky a hudba. Hudba jsou tři nahrané smyčky se skutečnými nástroji
+// (tools/music/compose.py): průzkum (epický pochod), boj (rychlé 6/8) a hádanky (harfa a flétna).
+// Efekty se syntetizují přes Web Audio.
+import exploreData from './assets/music/explore.webm';
+import combatData from './assets/music/combat.webm';
+import puzzleData from './assets/music/puzzle.webm';
+import LOOPS from './assets/music/loops.json';
+
+const MUSIC = { explore: exploreData, combat: combatData, puzzle: puzzleData };
+const VOLUME_KEY = 'labyrint-volume';
+const MASTER = 0.7;
 
 let ctx = null;
 let master = null;
 let sfxBus = null;
 let musicBus = null;
-let reverb = null;
 let muted = false;
 const moods = {};
 let currentMood = 'explore';
+const volume = loadVolume();
+
+function loadVolume() {
+  try {
+    const v = JSON.parse(localStorage.getItem(VOLUME_KEY));
+    if (v && typeof v.music === 'number' && typeof v.sfx === 'number') return v;
+  } catch (e) { /* výchozí hodnoty */ }
+  return { music: 0.45, sfx: 0.8 };
+}
+
+export function getVolume() { return { ...volume }; }
+
+// kind: 'music' | 'sfx', v: 0..1
+export function setVolume(kind, v) {
+  volume[kind] = Math.max(0, Math.min(1, v));
+  try { localStorage.setItem(VOLUME_KEY, JSON.stringify(volume)); } catch (e) { /* bez úložiště */ }
+  if (!ctx) return;
+  const bus = kind === 'music' ? musicBus : sfxBus;
+  bus.gain.setTargetAtTime(volume[kind] * (kind === 'music' ? 0.8 : 1), ctx.currentTime, 0.05);
+}
 
 export function initAudio() {
   if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
@@ -16,87 +44,75 @@ export function initAudio() {
   if (!AC) return;
   ctx = new AC();
   master = ctx.createGain();
-  master.gain.value = 0.6;
+  master.gain.value = MASTER;
   const comp = ctx.createDynamicsCompressor();
   comp.threshold.value = -14;
   comp.ratio.value = 4;
   master.connect(comp).connect(ctx.destination);
   sfxBus = ctx.createGain();
-  sfxBus.gain.value = 0.8;
+  sfxBus.gain.value = volume.sfx;
   sfxBus.connect(master);
   musicBus = ctx.createGain();
-  musicBus.gain.value = 0.55;
+  musicBus.gain.value = volume.music * 0.8;
   musicBus.connect(master);
-  reverb = ctx.createConvolver();
-  reverb.buffer = impulse(2.8, 2.5);
-  const wet = ctx.createGain();
-  wet.gain.value = 0.35;
-  reverb.connect(wet).connect(musicBus);
-  for (const name of ['explore', 'combat', 'puzzle']) {
+  for (const name of Object.keys(MUSIC)) {
     const g = ctx.createGain();
     g.gain.value = name === currentMood ? 1 : 0;
     g.connect(musicBus);
-    g.connect(reverb);
-    moods[name] = { gain: g, target: g.gain.value, next: ctx.currentTime + 0.1, step: 0 };
+    moods[name] = { gain: g, buffer: null, src: null };
+    decode(name);
   }
-  setInterval(schedule, 50);
 }
 
-function impulse(seconds, decay) {
-  const len = Math.floor(ctx.sampleRate * seconds);
-  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
-  for (let c = 0; c < 2; c++) {
-    const d = buf.getChannelData(c);
-    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
-  }
-  return buf;
+function base64ToBuffer(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+
+function decode(name) {
+  const done = (buf) => { moods[name].buffer = buf; play(name, false); };
+  try {
+    const r = ctx.decodeAudioData(base64ToBuffer(MUSIC[name]), done, () => { /* starý prohlížeč: hra hraje bez hudby */ });
+    if (r && r.catch) r.catch(() => {});
+  } catch (e) { /* bez hudby */ }
+}
+
+// Spustí smyčku nálady; fromStart = začne od prvního taktu.
+function play(name, fromStart) {
+  const m = moods[name];
+  if (!m.buffer) return;
+  if (m.src && !fromStart) return;
+  if (m.src) { try { m.src.stop(); } catch (e) { /* už stojí */ } }
+  const src = ctx.createBufferSource();
+  src.buffer = m.buffer;
+  src.loop = true;
+  src.loopStart = 0;
+  // délka smyčky přesně na vzorek (konec souboru může mít výplň kodeku)
+  src.loopEnd = Math.min(m.buffer.duration, LOOPS[name].samples / LOOPS[name].rate);
+  src.connect(m.gain);
+  src.start(ctx.currentTime + 0.02);
+  m.src = src;
 }
 
 export function toggleMute() {
   muted = !muted;
-  if (master) master.gain.setTargetAtTime(muted ? 0 : 0.6, ctx.currentTime, 0.05);
+  if (master) master.gain.setTargetAtTime(muted ? 0 : MASTER, ctx.currentTime, 0.05);
   return muted;
 }
 
 export function setMood(name) {
   if (!ctx || name === currentMood || !moods[name]) return;
-  const old = moods[currentMood];
   currentMood = name;
   const now = ctx.currentTime;
   for (const [k, m] of Object.entries(moods)) {
-    m.target = k === name ? 1 : 0;
+    const on = k === name;
+    // boj začíná vždy od začátku, aby nástup seděl na první doby
+    if (on && k === 'combat' && m.gain.gain.value < 0.05) play(k, true);
     m.gain.gain.cancelScheduledValues(now);
-    m.gain.gain.setTargetAtTime(m.target, now, k === name ? 0.6 : 0.8);
+    m.gain.gain.setTargetAtTime(on ? 1 : 0, now, on ? 0.5 : 0.9);
   }
-  // nová nálada začne na začátku taktu, aby navazovala
-  moods[name].next = Math.max(now + 0.05, old ? old.next : now);
-  moods[name].step = 0;
-}
-
-// ---------- nástroje ----------
-const D3 = 146.83;
-const hz = (semi, base = D3) => base * Math.pow(2, semi / 12);
-
-function env(g, t, a, peak, d, sustain, rel, end) {
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(peak, t + a);
-  g.gain.exponentialRampToValueAtTime(Math.max(0.0001, sustain), t + a + d);
-  g.gain.setValueAtTime(Math.max(0.0001, sustain), end);
-  g.gain.exponentialRampToValueAtTime(0.0001, end + rel);
-}
-
-function drum(out, t, freq = 55, vol = 0.9, decay = 0.6) {
-  const o = ctx.createOscillator();
-  const g = ctx.createGain();
-  o.type = 'sine';
-  o.frequency.setValueAtTime(freq * 2.6, t);
-  o.frequency.exponentialRampToValueAtTime(freq, t + 0.08);
-  g.gain.setValueAtTime(vol, t);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
-  o.connect(g).connect(out);
-  o.start(t);
-  o.stop(t + decay + 0.05);
-  noiseHit(out, t, vol * 0.35, 500, decay * 0.4);
 }
 
 let noiseBuf = null;
@@ -117,163 +133,6 @@ function noiseHit(out, t, vol, freq, dur, type = 'lowpass') {
   src.connect(f).connect(g).connect(out);
   src.start(t, Math.random() * 0.5);
   src.stop(t + dur + 0.05);
-}
-
-// Žestě: dva rozladěné pily přes otevírající se filtr.
-function brass(out, t, freq, dur, vol = 0.18) {
-  const f = ctx.createBiquadFilter();
-  f.type = 'lowpass';
-  f.Q.value = 2;
-  f.frequency.setValueAtTime(350, t);
-  f.frequency.exponentialRampToValueAtTime(1800, t + 0.12);
-  f.frequency.exponentialRampToValueAtTime(900, t + 0.5);
-  const g = ctx.createGain();
-  env(g, t, 0.06, vol, 0.3, vol * 0.7, 0.25, t + dur);
-  for (const det of [-7, 6]) {
-    const o = ctx.createOscillator();
-    o.type = 'sawtooth';
-    o.frequency.value = freq;
-    o.detune.value = det;
-    o.connect(f);
-    o.start(t);
-    o.stop(t + dur + 0.35);
-  }
-  f.connect(g).connect(out);
-}
-
-// Sbor: rozladěné tóny přes formantové filtry ("áá").
-function choir(out, t, freqs, dur, vol = 0.05) {
-  const g = ctx.createGain();
-  env(g, t, 0.6, vol, 0.4, vol * 0.8, 0.8, t + dur);
-  const f1 = ctx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = 750; f1.Q.value = 3;
-  const f2 = ctx.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = 1150; f2.Q.value = 4;
-  f1.connect(g); f2.connect(g);
-  g.connect(out);
-  for (const fr of freqs) for (const det of [-10, 0, 9]) {
-    const o = ctx.createOscillator();
-    o.type = 'sawtooth';
-    o.frequency.value = fr;
-    o.detune.value = det;
-    o.connect(f1); o.connect(f2);
-    o.start(t);
-    o.stop(t + dur + 0.9);
-  }
-}
-
-function pluck(out, t, freq, vol = 0.12, decay = 1.4) {
-  const o = ctx.createOscillator();
-  const o2 = ctx.createOscillator();
-  const g = ctx.createGain();
-  o.type = 'triangle';
-  o2.type = 'sine';
-  o.frequency.value = freq;
-  o2.frequency.value = freq * 2;
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(vol, t + 0.005);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
-  const g2 = ctx.createGain();
-  g2.gain.value = 0.3;
-  o.connect(g);
-  o2.connect(g2).connect(g);
-  g.connect(out);
-  o.start(t); o2.start(t);
-  o.stop(t + decay + 0.05); o2.stop(t + decay + 0.05);
-}
-
-function bass(out, t, freq, dur, vol = 0.16) {
-  const o = ctx.createOscillator();
-  const f = ctx.createBiquadFilter();
-  const g = ctx.createGain();
-  o.type = 'sawtooth';
-  o.frequency.value = freq;
-  f.type = 'lowpass';
-  f.frequency.value = 380;
-  env(g, t, 0.02, vol, 0.15, vol * 0.6, 0.12, t + dur);
-  o.connect(f).connect(g).connect(out);
-  o.start(t);
-  o.stop(t + dur + 0.2);
-}
-
-// ---------- skladba ----------
-// Akordy v d moll (půltóny od D3) a vlastní melodie ve stylu epických barbarských filmů.
-const MIN = [0, 3, 7], MAJ = [0, 4, 7];
-const PROG_EXPLORE = [[0, MIN], [-4, MAJ], [-7, MIN], [0, MIN], [0, MIN], [-4, MAJ], [-2, MAJ], [-5, MAJ]];
-const MELODY = [
-  [[0, 1.5], [3, 0.5], [5, 1], [7, 1]],
-  [[8, 1.5], [7, 0.5], [5, 1], [3, 1]],
-  [[5, 1.5], [3, 0.5], [2, 1], [-2, 1]],
-  [[0, 3], [null, 1]],
-  [[7, 1.5], [8, 0.5], [10, 1], [12, 1]],
-  [[10, 1.5], [8, 0.5], [7, 2]],
-  [[5, 1], [7, 1], [8, 1], [5, 1]],
-  [[7, 3], [null, 1]],
-];
-const PROG_COMBAT = [[0, MIN], [-4, MAJ], [-2, MAJ], [-5, MAJ]];
-const OSTINATO = [0, 0, 3, 0, 5, 0, 3, 1];
-const PROG_PUZZLE = [[0, MIN], [-4, MAJ], [-7, MIN], [-5, MAJ]];
-
-function chordFreqs(root, type, base = D3) {
-  return type.map((s) => hz(root + s, base));
-}
-
-// Naplánuje jeden takt dané nálady od času t.
-function scheduleBar(name, t, bar) {
-  const out = moods[name].gain;
-  if (name === 'explore') {
-    const beat = 60 / 76;
-    const [root, type] = PROG_EXPLORE[bar % 8];
-    // bubny: BUM ... bum-bum
-    drum(out, t, 50, 0.9, 0.9);
-    drum(out, t + beat * 2.5, 60, 0.5, 0.5);
-    drum(out, t + beat * 3, 50, 0.7, 0.7);
-    noiseHit(out, t + beat, 0.06, 3000, 0.08, 'highpass');
-    noiseHit(out, t + beat * 3.5, 0.05, 3000, 0.08, 'highpass');
-    bass(out, t, hz(root - 12), beat * 3.8);
-    choir(out, t, chordFreqs(root, type), beat * 3.9, 0.035);
-    let pos = 0;
-    for (const [n, len] of MELODY[bar % 8]) {
-      if (n !== null) brass(out, t + pos * beat, hz(n), len * beat * 0.95, 0.12);
-      pos += len;
-    }
-    return beat * 4;
-  }
-  if (name === 'combat') {
-    const beat = 60 / 132;
-    const [root, type] = PROG_COMBAT[bar % 4];
-    const pattern = [1, 0, 1, 1, 1, 0, 1, 1];
-    pattern.forEach((p, i) => { if (p) drum(out, t + i * beat / 2, i === 0 ? 48 : 70, i === 0 ? 1 : 0.45, 0.35); });
-    noiseHit(out, t + beat, 0.15, 1800, 0.12, 'bandpass');
-    noiseHit(out, t + beat * 3, 0.15, 1800, 0.12, 'bandpass');
-    OSTINATO.forEach((s, i) => bass(out, t + i * beat / 2, hz(root + s - 12), beat / 2 * 0.8, 0.13));
-    brass(out, t, hz(root + type[1]), beat * 0.9, 0.14);
-    brass(out, t + beat * 1.5, hz(root + type[2]), beat * 0.5, 0.11);
-    if (bar % 2 === 1) brass(out, t + beat * 2, hz(root + 12), beat * 1.8, 0.12);
-    choir(out, t, chordFreqs(root, type), beat * 3.8, 0.03);
-    return beat * 4;
-  }
-  // puzzle
-  const beat = 60 / 60;
-  const [root, type] = PROG_PUZZLE[bar % 4];
-  const notes = [...chordFreqs(root, type), hz(root + 12)];
-  [0, 1, 2, 3, 2, 1, 2, 3].forEach((k, i) => pluck(out, t + i * beat / 2, notes[k] * 2, 0.07));
-  choir(out, t, chordFreqs(root, type), beat * 3.9, 0.022);
-  drum(out, t, 45, 0.25, 0.5);
-  drum(out, t + beat * 0.35, 45, 0.15, 0.4);
-  return beat * 4;
-}
-
-function schedule() {
-  if (!ctx || muted) return;
-  const now = ctx.currentTime;
-  for (const [name, m] of Object.entries(moods)) {
-    const audible = m.target > 0 || m.gain.gain.value > 0.02;
-    if (!audible) { m.next = Math.max(m.next, now); continue; }
-    if (m.next < now) m.next = now + 0.05;
-    while (m.next < now + 0.3) {
-      m.next += scheduleBar(name, m.next, m.step);
-      m.step++;
-    }
-  }
 }
 
 // ---------- zvukové efekty ----------

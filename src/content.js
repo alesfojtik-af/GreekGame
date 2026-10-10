@@ -199,10 +199,8 @@ export const LORE = {
   statue: 'Socha Athény. Na podstavci stojí: „Moudrý vidí to, co Mlha skrývá.“',
   rubble: 'Zával. Tudy cesta zpět nevede.',
   plaque: 'Bronzová tabulka s velkým nápisem ΔΑΙΔΑΛΟΣ (Daidalos). Pod ním drobně: „Kód mé skříně je skrytý v mém jménu. Vezmi 3., 1., 4. a 2. písmeno.“',
-  amphora: 'Stará amfora s malbou: Théseus vchází do Labyrintu a v ruce drží klubko, které mu dala princezna Ariadna.',
   bowRack: 'Prázdný stojan s nápisem „Artemis, paní lovu“.',
   oedipus: 'Freska: poutník s oteklýma nohama odpovídá Sfinze. Pod obrazem je řecky vyryto ΟΙΔΙΠΟΥΣ.',
-  oleary: 'Do zdi je vyškrábáno: „Ne všichni pekelní psi jsou zlí. Paní O\'Learyová je hodná. – P. J.“',
   hecate: 'Socha Hekaty se třemi tvářemi. Bohyně křižovatek, magie a Mlhy. Jedna tvář se dívá na tebe.',
   helmets: 'Hromada promáčknutých přileb. Nápis na jedné: „Kdo útočí na býka zepředu, skončí tady.“',
   mosaic: 'Mozaika: stařec v dílně staví křídla z peří a vosku. Chlapec letí ke slunci, vosk taje a chlapec padá do moře. Pod obrazem je vyryto „I...“, zbytek je oprýskaný.',
@@ -225,6 +223,15 @@ export const CURIOSITIES = {
   pest: 'Z dlaždice vyskočil Kerkóps, malý chlupatý otrava.',
 };
 
+// Deník: skutečné nápovědy (na zdi mají zlatou pečeť Δ) se po přečtení zapíšou sem.
+export const JOURNAL = [
+  { id: 'plaque', place: 'Vstupní síň', title: 'Bronzová tabulka', lines: ['ΔΑΙΔΑΛΟΣ (Daidalos)', 'Kód mé skříně je skrytý v mém jménu. Vezmi 3., 1., 4. a 2. písmeno.'] },
+  { id: 'sphinx', place: 'Síň Sfingy', title: 'Tajemství Sfingy', lines: ['Daidalova brána se otevře jen jménem toho, kdo mě kdysi porazil jako první.', 'Jeho podobu najdeš na stěně síně Sfingy.'] },
+  { id: 'oedipus', place: 'Síň Sfingy', title: 'Freska', lines: ['Poutník s oteklýma nohama odpovídá Sfinze.', 'Pod obrazem je vyryto ΟΙΔΙΠΟΥΣ.'] },
+  { id: 'mistTablet', place: 'Hekatina svatyně', title: 'Tabulka skrytá v Mlze', lines: MIST_CLUES },
+  { id: 'mosaic', place: 'Aréna', title: 'Mozaika', lines: ['Stařec v dílně staví křídla z peří a vosku.', 'Chlapec letí ke slunci, vosk taje a chlapec padá do moře.', 'Pod obrazem je vyryto „I...“, zbytek je oprýskaný.'] },
+];
+
 export const CONTROLS = [
   ['W A S D', 'chůze (i šipky ↑ ↓)'],
   ['Myš', 'otáčení (i šipky ← →)'],
@@ -234,6 +241,7 @@ export const CONTROLS = [
   ['Pravé tl. / E', 'střelba z luku'],
   ['1–9', 'vybrat předmět'],
   ['F', 'použít vybraný předmět'],
+  ['J', 'deník nápověd'],
   ['M', 'zvuk zap/vyp'],
   ['Esc', 'pauza'],
 ];

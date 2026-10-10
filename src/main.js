@@ -4,14 +4,17 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { buildWorld } from './world.js';
 import { makePlayer, makeHound, makeMinotaur, makeItem, makeMyrmex, makePest, makeGhost, makeArrow } from './models.js';
 import {
   PARENTS, INTRO, POINTS, SPHINX_QUESTIONS, SPHINX, GATE, GATE_TEXT, SYMBOL_SOLUTION, DIAL_SOLUTION, ITEMS, LORE, AUTOMATON,
-  WANDERERS, PEST, CURIOSITIES, objective, groverLines,
+  WANDERERS, PEST, CURIOSITIES, JOURNAL, objective, groverLines,
 } from './content.js';
 import { matches } from './speech.js';
-import { initAudio, sfx, toggleMute, setMood } from './audio.js';
+import { initAudio, sfx, toggleMute, setMood, getVolume, setVolume } from './audio.js';
 import * as ui from './ui.js';
 import { loadLeaderboard, submitScore, sourceNote, withOwnRow } from './score.js';
 
@@ -31,29 +34,78 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.0;
 document.body.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1a1530);
-scene.fog = new THREE.Fog(0x140e0a, 14, 52);
-const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 200);
+scene.background = new THREE.Color(0x120d18);
+scene.fog = new THREE.Fog(0x120c08, 12, 48);
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
 
-scene.add(new THREE.HemisphereLight(0xa898c0, 0x2a1a0a, 0.7));
-const sun = new THREE.DirectionalLight(0xffc890, 1.8);
+// Odlesky na kovu a mramoru: tlumené prostředí místo jasného studia.
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+
+scene.add(new THREE.HemisphereLight(0x8a7aa0, 0x2a1a0a, 0.22));
+const sun = new THREE.DirectionalLight(0xffcf98, 1.7);
 sun.position.set(20, 30, 40);
 sun.target.position.set(29, 0, 58);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.bias = -0.0005;
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.03;
 Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 90 });
 scene.add(sun, sun.target);
 
+// Filmové barevné ladění: kontrast, teplá světla a chladnější stíny, vinětace a jemné zrno.
+const GradeShader = {
+  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, vignette: { value: 0.9 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float time; uniform float vignette; varying vec2 vUv;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    void main(){
+      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      float l = dot(c, vec3(0.299, 0.587, 0.114));
+      c = mix(vec3(l), c, 1.0);
+      c = mix(c * vec3(0.92, 0.98, 1.06), c * vec3(1.06, 1.0, 0.9), smoothstep(0.15, 0.75, l));
+      c = (c - 0.5) * 1.06 + 0.5;
+      vec2 d = vUv - 0.5;
+      c *= mix(1.0, smoothstep(0.85, 0.25, length(d * vec2(1.25, 1.0))), vignette * 0.55);
+      c += (hash(vUv * 900.0 + time) - 0.5) * 0.025;
+      gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+    }`,
+};
+
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.55, 0.5, 0.82);
+const ao = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
+ao.blendIntensity = 0.85;
+ao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 1, scale: 1.2, samples: 12 });
+ao.updatePdMaterial({ radius: 6, samples: 12 });
+composer.addPass(ao);
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.45, 0.55, 0.85);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+const grade = new ShaderPass(GradeShader);
+composer.addPass(grade);
+
+// Když hra nestíhá, vypneme stínování v rozích a snížíme rozlišení.
+const perf = { t: 0, frames: 0, lowered: false };
+function watchPerformance(dt) {
+  if (perf.lowered) return;
+  perf.t += dt; perf.frames++;
+  if (perf.t < 4) return;
+  const fps = perf.frames / perf.t;
+  perf.t = 0; perf.frames = 0;
+  if (fps < 32) {
+    perf.lowered = true;
+    ao.enabled = false;
+    renderer.setPixelRatio(1);
+    composer.setPixelRatio(1);
+    composer.setSize(window.innerWidth, window.innerHeight);
+  }
+}
 
 const W = buildWorld(scene);
 
@@ -133,6 +185,25 @@ function puzzleSolved(key) {
   if (elapsed - p.start < 30) addScore(POINTS.quick, 'rychle', 'puzzle');
 }
 function useHint() { addScore(POINTS.hint, 'nápověda', 'mistake'); }
+
+// Skutečná nápověda (se zlatou pečetí): přečte se v panelu a zapíše do deníku.
+function journalAdd(id) {
+  if (flags['j_' + id]) return false;
+  flags['j_' + id] = true;
+  save();
+  return true;
+}
+function readHint(id) {
+  const entry = JOURNAL.find((e) => e.id === id);
+  loreOnce(id);
+  journalAdd(id);
+  openPanel();
+  ui.showNote(entry, panelClosed);
+}
+function openJournal() {
+  openPanel();
+  ui.showJournal(JOURNAL.filter((e) => flags['j_' + e.id]), panelClosed);
+}
 
 function loreOnce(id) {
   if (flags['lore_' + id]) return;
@@ -667,6 +738,7 @@ function updateGhosts(dt, time) {
       }
       const s = Math.sin(time * 5) * 0.5;
       u.legL.rotation.x = s; u.legR.rotation.x = -s;
+      u.legL.userData.lower.rotation.x = Math.max(0, s) * 1.2; u.legR.userData.lower.rotation.x = Math.max(0, -s) * 1.2;
     }
     g.mesh.position.set(g.pos.x, 0.1 + Math.sin(time * 2) * 0.08, g.pos.z);
     g.int.pos.set(g.pos.x, 1.2, g.pos.z);
@@ -863,8 +935,9 @@ function interact() {
     }, panelClosed);
     return;
   }
-  if (LORE[it.id] && ['statue', 'rubble', 'plaque', 'amphora', 'oedipus', 'oleary', 'hecate', 'helmets', 'mosaic'].includes(it.id)) {
-    ui.toast(LORE[it.id], it.id === 'mosaic' || it.id === 'plaque' ? 9000 : 6000);
+  if (['plaque', 'oedipus', 'mistTablet', 'mosaic'].includes(it.id)) { readHint(it.id); return; }
+  if (LORE[it.id] && ['statue', 'rubble', 'hecate', 'helmets'].includes(it.id)) {
+    ui.toast(LORE[it.id], 6000);
     if (it.id !== 'rubble') loreOnce(it.id);
     return;
   }
@@ -1004,6 +1077,7 @@ function applyMist(revealed) {
   W.mist.wall.mesh.visible = !revealed;
   W.mist.wall.collider.active = !revealed;
   W.mistWallInt.enabled = !revealed;
+  W.mistTabletInt.enabled = revealed;
   W.lockInt.enabled = revealed && !flags.lockOpen;
   W.secretInt.enabled = revealed && !flags.secretFound;
   if (revealed) spawnItem('lyraTile', W.itemSpots.lyraTile);
@@ -1039,13 +1113,14 @@ function talkSphinx() {
         puzzleSolved(key);
         if (sphinxCorrect >= 3) {
           flags.sphinxDone = true;
+          journalAdd('sphinx');
           sphinxQ = null;
           moveSphinxAside();
           refreshHUD();
           save();
           setTimeout(() => {
             openPanel();
-            ui.showNPC({ name: 'Sfinga', text: SPHINX.done, options: [] }, null, panelClosed);
+            ui.showNPC({ name: 'Sfinga', text: SPHINX.done + ' (Zapsáno do deníku, klávesa J.)', options: [] }, null, panelClosed);
           }, 60);
           return { close: true };
         }
@@ -1151,10 +1226,10 @@ document.addEventListener('contextmenu', (e) => { if (mode === 'play') e.prevent
 
 window.addEventListener('keydown', (e) => {
   if (ui.panelOpen()) {
-    if (e.key === 'Escape') ui.closePanel();
+    if (e.key === 'Escape' || (e.code === 'KeyJ' && ui.journalShown())) ui.closePanel();
     return;
   }
-  if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+  if (document.activeElement && document.activeElement.tagName === 'INPUT' && document.activeElement.type === 'text') return;
   if (mode === 'pause' && (e.key === 'Escape' || e.key === 'Enter')) { resume(); return; }
   if (mode !== 'play') return;
   keys[e.code] = true;
@@ -1167,6 +1242,7 @@ window.addEventListener('keydown', (e) => {
     if (i < inventory.length) { selected = i; refreshInventory(); }
   }
   if (e.code === 'KeyF') useSelected();
+  if (e.code === 'KeyJ') openJournal();
   if (e.code === 'KeyH' && hasItem('ambrosia')) { selected = inventory.findIndex((i) => i.id === 'ambrosia'); useSelected(); }
   if (e.code === 'KeyM') ui.toast(toggleMute() ? 'Zvuk vypnut' : 'Zvuk zapnut', 1200);
   if (e.code === 'Escape' && noLock) pause();
@@ -1230,6 +1306,8 @@ function updatePlayer(dt, time) {
   }
   const sw = moving ? Math.sin(p.walk) * 0.7 : 0;
   u.legL.rotation.x = sw; u.legR.rotation.x = -sw;
+  u.legL.userData.lower.rotation.x = Math.max(0, sw) * 1.2; // koleno se pokrčí, když noha jde dozadu
+  u.legR.userData.lower.rotation.x = Math.max(0, -sw) * 1.2;
   u.armL.rotation.x = -sw * 0.8;
   if (p.attackT > 0) {
     p.attackT += dt / 0.28;
@@ -1312,7 +1390,10 @@ function step(dt) {
 
 function loop() {
   requestAnimationFrame(loop);
-  step(Math.min(clock.getDelta(), 0.05));
+  const dt = clock.getDelta();
+  step(Math.min(dt, 0.05));
+  if (mode === 'play') watchPerformance(dt);
+  grade.uniforms.time.value = (grade.uniforms.time.value + dt) % 100;
   composer.render();
 }
 
@@ -1417,6 +1498,18 @@ function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&am
 
 // ---------- menu ----------
 ui.renderControls();
+
+// posuvníky hlasitosti (v menu i v pauze)
+const volInputs = [...document.querySelectorAll('input.vol')];
+function syncVolume() {
+  const v = getVolume();
+  volInputs.forEach((el) => { el.value = Math.round(v[el.dataset.kind] * 100); });
+}
+volInputs.forEach((el) => {
+  el.addEventListener('input', () => { setVolume(el.dataset.kind, el.value / 100); syncVolume(); });
+  el.addEventListener('keydown', (e) => { if (e.key === 'Escape' || e.key === 'Enter') el.blur(); });
+});
+syncVolume();
 
 const parentsEl = document.getElementById('parents');
 parentsEl.innerHTML = PARENTS.map((p, i) => `<div class="parent ${i === 0 ? 'sel' : ''}" data-id="${p.id}" tabindex="0" role="button"><div class="ic">${p.icon}</div><b>${p.name}</b><small>${p.perk}</small></div>`).join('');

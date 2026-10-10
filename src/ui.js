@@ -13,12 +13,16 @@ export function panelOpen() {
 
 function openPanel(html, closeCb) {
   const p = $('panel');
+  delete p.dataset.kind;
   p.innerHTML = html;
   p.classList.remove('hidden');
   onClose = closeCb;
 }
 
+export function journalShown() { return $('panel').dataset.kind === 'journal' && panelOpen(); }
+
 export function closePanel() {
+  delete $('panel').dataset.kind;
   $('panel').classList.add('hidden');
   $('panel').innerHTML = '';
   const cb = onClose;
@@ -46,6 +50,28 @@ export function showNPC(npc, onOption, closeCb) {
     });
   };
   render(npc.text);
+}
+
+// ---------- skutečná nápověda a deník ----------
+export function showNote(entry, closeCb) {
+  openPanel(`
+    <div class="npc-name"><span class="seal">Δ</span> ${esc(entry.title)}</div>
+    <div class="npc-text">${entry.lines.map(esc).join('<br>')}</div>
+    <div class="note-saved">Zapsáno do deníku. Otevřeš ho klávesou J.</div>
+    <div class="options"><button class="leave">Zavřít [Esc]</button></div>`, closeCb);
+  $('panel').querySelector('.leave').onclick = () => closePanel();
+}
+
+export function showJournal(entries, closeCb) {
+  const body = entries.length
+    ? entries.map((e) => `<div class="journal-entry"><div class="journal-head"><span class="seal">Δ</span> ${esc(e.title)} <span class="journal-place">${esc(e.place)}</span></div><div>${e.lines.map(esc).join('<br>')}</div></div>`).join('')
+    : '<div class="npc-text">Zatím prázdný. Nápovědy se zlatou pečetí Δ se sem zapíšou, jakmile si je přečteš.</div>';
+  openPanel(`
+    <div class="npc-name">Deník</div>
+    ${body}
+    <div class="options"><button class="leave">Zavřít [J / Esc]</button></div>`, closeCb);
+  $('panel').dataset.kind = 'journal';
+  $('panel').querySelector('.leave').onclick = () => closePanel();
 }
 
 // ---------- hádanka s odpovědí psaním nebo hlasem ----------

@@ -2,6 +2,12 @@
 import * as THREE from 'three';
 import { mat, makeTorch, makeChest, makeSphinx, makeGrover, makeAutomaton, makeItem, makeLever } from './models.js';
 import { MIST_CLUES, SYMBOLS } from './content.js';
+import { pbr } from './textures.js';
+
+// Barevné ladění fotografických textur (pískovec, tmavší dlažba).
+const WALL_TINT = 0xe0cba6;
+const FLOOR_TINT = 0xb9a890;
+export const wallMat = (rx, ry) => pbr('stone', rx, ry, { color: WALL_TINT, normal: 1.3, roughness: 0.92 });
 
 // ---------- procedurální textury ----------
 function canvasTex(w, h, draw) {
@@ -19,24 +25,6 @@ function rnd(seed) {
   return () => ((s = (s * 16807) % 2147483647) / 2147483647);
 }
 
-const stoneTex = canvasTex(256, 256, (g, w, h) => {
-  const r = rnd(7);
-  g.fillStyle = '#8a7a64'; g.fillRect(0, 0, w, h);
-  const rows = 4, bh = h / rows;
-  for (let y = 0; y < rows; y++) {
-    const off = y % 2 ? 64 : 0;
-    for (let x = -1; x < 3; x++) {
-      const v = 120 + Math.floor(r() * 30);
-      g.fillStyle = `rgb(${v + 10},${v},${v - 20})`;
-      g.fillRect(x * 128 + off + 3, y * bh + 3, 122, bh - 6);
-    }
-  }
-  for (let i = 0; i < 400; i++) {
-    g.fillStyle = `rgba(0,0,0,${r() * 0.12})`;
-    g.fillRect(r() * w, r() * h, 2, 2);
-  }
-});
-
 // pás s řeckým meandrem
 const meanderTex = canvasTex(128, 32, (g, w, h) => {
   g.fillStyle = '#6a2a1a'; g.fillRect(0, 0, w, h);
@@ -48,35 +36,6 @@ const meanderTex = canvasTex(128, 32, (g, w, h) => {
     g.lineTo(x + 10, 20); g.lineTo(x + 10, 13); g.lineTo(x + 16, 13);
     g.moveTo(x - 4, 26); g.lineTo(x + 28, 26);
     g.stroke();
-  }
-});
-
-const floorTex = canvasTex(256, 256, (g, w, h) => {
-  const r = rnd(3);
-  for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
-    const v = 90 + Math.floor(r() * 25);
-    g.fillStyle = `rgb(${v + 15},${v + 5},${v - 10})`;
-    g.fillRect(x * 64, y * 64, 64, 64);
-    g.strokeStyle = 'rgba(30,20,10,0.6)';
-    g.strokeRect(x * 64 + 0.5, y * 64 + 0.5, 63, 63);
-  }
-});
-
-const sandTex = canvasTex(256, 256, (g, w, h) => {
-  const r = rnd(11);
-  g.fillStyle = '#b89a6a'; g.fillRect(0, 0, w, h);
-  for (let i = 0; i < 2500; i++) {
-    g.fillStyle = `rgba(${r() > 0.5 ? '255,240,200' : '80,60,30'},${r() * 0.2})`;
-    g.fillRect(r() * w, r() * h, 2, 2);
-  }
-});
-
-const grassTex = canvasTex(128, 128, (g, w, h) => {
-  const r = rnd(5);
-  g.fillStyle = '#4a8a3a'; g.fillRect(0, 0, w, h);
-  for (let i = 0; i < 800; i++) {
-    g.fillStyle = `rgba(${r() > 0.5 ? '120,200,90' : '30,70,20'},0.5)`;
-    g.fillRect(r() * w, r() * h, 1, 3);
   }
 });
 
@@ -112,8 +71,34 @@ function wrap(text, n) {
   return out;
 }
 
+// Pečeť skutečných nápověd: zlatý kotouč s Δ.
+let sealMat = null;
+function makeSealMat() {
+  const t = canvasTex(256, 256, (g) => {
+    const gr = g.createRadialGradient(110, 100, 10, 128, 128, 124);
+    gr.addColorStop(0, '#fff2b0'); gr.addColorStop(0.55, '#e0b040'); gr.addColorStop(1, '#8a5a10');
+    g.fillStyle = gr; g.beginPath(); g.arc(128, 128, 122, 0, 7); g.fill();
+    g.lineWidth = 8; g.strokeStyle = '#6a4208'; g.beginPath(); g.arc(128, 128, 100, 0, 7); g.stroke();
+    g.font = 'bold 130px Georgia'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#fff6c8'; g.fillText('Δ', 131, 141);
+    g.fillStyle = '#5a3606'; g.fillText('Δ', 128, 138);
+  });
+  return new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false });
+}
+// Spirála na nášlapných dlaždicích (aby se nepletla s pečetí Δ).
+function makeSpiralTex() {
+  return canvasTex(128, 128, (g) => {
+    g.strokeStyle = '#ffd070'; g.shadowColor = '#ff9900'; g.shadowBlur = 10; g.lineWidth = 6; g.lineCap = 'round';
+    g.beginPath();
+    for (let a = 0; a < Math.PI * 6; a += 0.1) { const r = 4 + a * 2.6; g.lineTo(64 + Math.cos(a) * r, 64 + Math.sin(a) * r); }
+    g.stroke();
+  });
+}
+
 // ---------- svět ----------
 export function buildWorld(scene) {
+  sealMat = sealMat || makeSealMat();
+  const spiralTex = makeSpiralTex();
   const colliders = [];
   const solids = []; // meshe pro kolizi kamery
   const interactables = [];
@@ -136,20 +121,33 @@ export function buildWorld(scene) {
     return { mesh: m, collider: c };
   }
 
+  // Zdi mají souřadnice textury podle skutečných metrů, takže kámen navazuje i na ostění dveří.
+  const WALL = wallMat(1 / 2.6, 1 / 2.6);
+  function worldUV(mesh) {
+    const g = mesh.geometry, p = g.attributes.position, n = g.attributes.normal, uv = g.attributes.uv, o = mesh.position;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i) + o.x, y = p.getY(i) + o.y, z = p.getZ(i) + o.z;
+      const ax = Math.abs(n.getX(i)), ay = Math.abs(n.getY(i));
+      if (ax > 0.5) uv.setXY(i, z, y);
+      else if (ay > 0.5) uv.setXY(i, x, z);
+      else uv.setXY(i, x, y);
+    }
+    uv.needsUpdate = true;
+  }
   function wallBox(x1, y1, z1, x2, y2, z2) {
-    const len = Math.max(x2 - x1, z2 - z1);
-    box(x1, y1, z1, x2, y2, z2, texMat(stoneTex, len / 3, (y2 - y1) / 3));
+    worldUV(box(x1, y1, z1, x2, y2, z2, WALL).mesh);
   }
 
   // Místnost: obdélník, zdi vně obdélníku, otvory {side, c, w, h}.
-  function room(x1, z1, x2, z2, { openings = [], skip = [], h = 4.5, ceiling = true, floor = floorTex, frieze = true } = {}) {
-    const fl = new THREE.Mesh(new THREE.PlaneGeometry(x2 - x1, z2 - z1), texMat(floor, (x2 - x1) / 4, (z2 - z1) / 4));
+  function room(x1, z1, x2, z2, { openings = [], skip = [], h = 4.5, ceiling = true, floor = 'stone', frieze = true } = {}) {
+    const tile = floor === 'grass' ? 3 : floor === 'sand' ? 4 : 2.2;
+    const fl = new THREE.Mesh(new THREE.PlaneGeometry(x2 - x1, z2 - z1), pbr(floor, (x2 - x1) / tile, (z2 - z1) / tile, { color: floor === 'stone' ? FLOOR_TINT : floor === 'sand' ? new THREE.Color(1.0, 1.04, 1.16) : 0xd0d8c0, normal: floor === 'sand' ? 0.6 : 1.2, roughness: floor === 'stone' ? 0.8 : 0.95 }));
     fl.rotation.x = -Math.PI / 2;
     fl.position.set((x1 + x2) / 2, 0, (z1 + z2) / 2);
     fl.receiveShadow = true;
     scene.add(fl);
     if (ceiling) {
-      const ce = new THREE.Mesh(new THREE.PlaneGeometry(x2 - x1 + 1, z2 - z1 + 1), mat(0x3a3028));
+      const ce = new THREE.Mesh(new THREE.PlaneGeometry(x2 - x1 + 1, z2 - z1 + 1), pbr('rock', (x2 - x1) / 4, (z2 - z1) / 4, { color: 0x6a5a48, roughness: 0.95 }));
       ce.rotation.x = Math.PI / 2;
       ce.position.set((x1 + x2) / 2, h, (z1 + z2) / 2);
       scene.add(ce);
@@ -194,10 +192,10 @@ export function buildWorld(scene) {
     t.position.set(x, y, z);
     scene.add(t);
     if (withLight) {
-      const l = new THREE.PointLight(0xff9a40, 20, 15, 1.6);
+      const l = new THREE.PointLight(0xff9440, 26, 16, 1.8);
       l.position.set(x + (x > 0 ? -0.4 : x < -0 ? 0.4 : 0), y + 0.7, z);
       scene.add(l);
-      animated.push((time) => { l.intensity = 18 + Math.sin(time * 9 + x) * 2 + Math.sin(time * 23 + z) * 1.5; });
+      animated.push((time) => { l.intensity = 24 + Math.sin(time * 9 + x) * 2.5 + Math.sin(time * 23 + z) * 1.8; });
     }
     animated.push((time) => { t.userData.flame.scale.y = 1.8 + Math.sin(time * 15 + x * 3) * 0.25; });
   }
@@ -209,6 +207,14 @@ export function buildWorld(scene) {
     scene.add(m);
     return m;
   }
+  // Zlatá pečeť Δ v rohu skutečné nápovědy (ozdoby ji nemají).
+  function seal(hint) {
+    const { width, height } = hint.geometry.parameters;
+    const s = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.46), sealMat);
+    s.position.set(width / 2 - 0.12, -height / 2 + 0.12, 0.02);
+    hint.add(s);
+    return s;
+  }
 
   function addInteract(id, x, y, z, label, radius = 2.2) {
     const it = { id, pos: new THREE.Vector3(x, y, z), label, radius, enabled: true };
@@ -216,7 +222,7 @@ export function buildWorld(scene) {
     return it;
   }
 
-  const marble = mat(0xece6da, { roughness: 0.45 });
+  const marble = pbr('marble', 1, 2, { color: 0xf2ece0, roughness: 0.38, envMapIntensity: 0.6 });
   function column(x, z, h, r = 0.45) {
     const g = new THREE.Group();
     const shaft = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.9, r, h - 0.6, 24), marble);
@@ -240,7 +246,7 @@ export function buildWorld(scene) {
     m.position.set(x, 0.03, z);
     m.receiveShadow = true;
     scene.add(m);
-    const sym = plane(textTexture(['Δ'], { w: 128, h: 128, font: 'bold 80px Georgia', color: '#ffd070', glow: '#ff9900' }), 0.8, 0.8, x, 0.07, z, 0);
+    const sym = plane(spiralTex, 0.8, 0.8, x, 0.07, z, 0);
     sym.rotation.x = -Math.PI / 2;
     triggers.push({ id, kind: 'plate', pos: new THREE.Vector3(x, 0, z), mesh: m, room, used: false });
   }
@@ -268,7 +274,7 @@ export function buildWorld(scene) {
   }
   box(-3.5, 0, 0, 3.5, 1.2, 1.6, mat(0x6a5a48), { solid: false }).mesh.visible = false;
   addInteract('rubble', 0, 1, 1.8, 'Prozkoumat zával');
-  const crate = mat(0x7a5a32, { roughness: 0.85 });
+  const crate = pbr('wood', 1, 1, { color: 0x9a8670, roughness: 0.92 });
   box(4, 0, 11, 6, 1.2, 13, crate);
   box(5.5, 0, 13.5, 7.5, 2.3, 15.5, crate);
   box(-7.5, 0, 14, -6, 1, 15.5, crate);
@@ -296,10 +302,9 @@ export function buildWorld(scene) {
   const band = new THREE.Mesh(new THREE.CylinderGeometry(0.345, 0.345, 0.15, 24, 1, true), mat(0x1a1a1a));
   band.position.set(4.5, 0.5, 2.5);
   scene.add(band);
-  addInteract('amphora', 4.5, 0.8, 2.5, 'Prohlédnout amforu', 1.8);
   // Daidalova tabulka s kódem
   const plaqueTex = textTexture(['ΔΑΙΔΑΛΟΣ', '3. · 1. · 4. · 2.'], { w: 1024, h: 512, font: 'bold 120px Georgia', color: '#ffe0a0', glow: '#a06000', bg: '#5a3a18' });
-  plane(plaqueTex, 2.6, 1.3, -4.5, 2.2, 15.96, Math.PI);
+  seal(plane(plaqueTex, 2.6, 1.3, -4.5, 2.2, 15.96, Math.PI));
   addInteract('plaque', -4.5, 1.5, 15.2, 'Přečíst bronzovou tabulku');
   // luk na stojanu
   const rack = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.6, 1.4), mat(0x5a3a1a));
@@ -334,7 +339,7 @@ export function buildWorld(scene) {
     grover.userData.arms[1].rotation.z = 0.2 + Math.sin(time * 3) * 0.15;
   });
 
-  const doorA = box(-1.2, 0, 16, 1.2, 3, 16.5, mat(0x7a4a22, { metalness: 0.2 }));
+  const doorA = box(-1.2, 0, 16, 1.2, 3, 16.5, pbr('wood', 1, 1.5, { color: 0x8a6a4c, roughness: 0.85 }));
   addInteract('doorA', 0, 1.5, 15.4, 'Otevřít dveře');
   plate('plate1', 2.5, 8.5, 'entrance');
 
@@ -370,24 +375,21 @@ export function buildWorld(scene) {
     g.font = 'bold 54px Georgia'; g.fillStyle = '#3a1a0a'; g.textAlign = 'center'; g.fillText('ΟΙΔΙΠΟΥΣ', w / 2, 350);
     g.strokeStyle = '#7a4a1a'; g.lineWidth = 12; g.strokeRect(0, 0, w, h);
   });
-  plane(frescoTex, 3.2, 2.4, -6.96, 2.6, 28.5, Math.PI / 2);
+  seal(plane(frescoTex, 3.2, 2.4, -6.96, 2.6, 28.5, Math.PI / 2));
   addInteract('oedipus', -6.2, 1.5, 28.5, 'Prohlédnout fresku', 2.2);
   lever('lever1', 6.95, 28.5, -Math.PI / 2, 'sphinx');
 
   // ===== 4) Chodba pekelných psů =====
   room(-3.5, 34.5, 3.5, 52, { skip: ['n', 's'], h: 4 });
   torch(-3.2, 2.2, 38); torch(3.2, 2.2, 45); torch(-3.2, 2.2, 50, false);
-  box(-3.5, 0, 41, -2.2, 4, 42, mat(0x8a7a64)); // výstupky
-  box(2.2, 0, 47, 3.5, 4, 48, mat(0x8a7a64));
+  worldUV(box(-3.5, 0, 41, -2.2, 4, 42, WALL).mesh); // výstupky
+  worldUV(box(2.2, 0, 47, 3.5, 4, 48, WALL).mesh);
   for (let i = 0; i < 6; i++) {
     const b = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.4, 4, 8), mat(0xe8e0c8));
     b.position.set(-2.5 + Math.random() * 5, 0.05, 38 + Math.random() * 12);
     b.rotation.set(Math.PI / 2, 0, Math.random() * 3);
     scene.add(b);
   }
-  const scratch = textTexture(['Ne všichni pekelní psi', 'jsou zlí. – P. J.'], { w: 512, h: 256, font: 'italic 40px Georgia', color: '#e8dcc0', glow: '#000' });
-  plane(scratch, 2.2, 1.1, 3.46, 1.6, 39.5, -Math.PI / 2);
-  addInteract('oleary', 2.8, 1.5, 39.5, 'Prohlédnout nápis', 1.8);
   plate('plate2', -1.5, 37.5, 'hounds');
   // tajná skrýš (jen s amuletem)
   const secretGlow = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.6), nicheMat);
@@ -440,22 +442,19 @@ export function buildWorld(scene) {
   addInteract('automaton', -5.5, 1.2, 55.5, 'Promluvit s automatem');
   animated.push((time) => { automaton.userData.gear.rotation.z = time * 2; automaton.userData.head.rotation.y = Math.sin(time * 0.7) * 0.8; });
 
-  // nápisy viditelné jen s amuletem: 2 řady na severní zdi
-  const clueSpots = [[-5.2, 3.6], [0, 3.6], [5.2, 3.6], [-4, 2.0], [3.6, 2.0]];
-  MIST_CLUES.forEach((clue, i) => {
-    const last = i === MIST_CLUES.length - 1;
-    const tex = textTexture(wrap(clue, last ? 22 : 16), { w: 1024, h: 512, font: `bold ${last ? 72 : 88}px Georgia`, color: last ? '#ffd8a0' : '#cfe0ff', glow: last ? '#ff8800' : '#7a8cff' });
-    const p = plane(tex, last ? 4.6 : 3.6, last ? 2.3 : 1.8, clueSpots[i][0], clueSpots[i][1], 63.95, Math.PI);
-    p.visible = false;
-    mist.reveal.push(p);
-  });
-  const fakeDoor = box(-8, 0, 56.8, -7.8, 3, 59.2, mat(0x7a4a22), { collide: false, solid: false });
+  // tabulka s nápisy, viditelná jen s amuletem
+  const clueLines = MIST_CLUES.flatMap((c) => wrap(c, 44));
+  const tablet = plane(textTexture(clueLines, { w: 1024, h: 640, font: 'bold 40px Georgia', color: '#dfe8ff', glow: '#7a8cff', bg: 'rgba(20,16,40,0.78)' }), 5.2, 3.25, 0, 3.15, 63.95, Math.PI);
+  seal(tablet);
+  tablet.visible = false;
+  mist.reveal.push(tablet);
+  const mistTabletInt = addInteract('mistTablet', 0, 1.6, 61.8, 'Přečíst nápisy', 2.6);
+  mistTabletInt.enabled = false;
+  const fakeDoor = box(-8, 0, 56.8, -7.8, 3, 59.2, pbr('wood', 1, 1.5, { color: 0x8a6a4c, roughness: 0.85 }), { collide: false, solid: false });
   mist.hide.push(fakeDoor.mesh);
   const fakeInt = addInteract('fakeDoor', -7.2, 1.5, 58, 'Prozkoumat dveře');
-  const painting = plane(textTexture(['Malba dveří'], { color: '#c0b090', glow: '#000', font: 'italic 36px Georgia' }), 2.4, 1.2, -7.95, 1.5, 58, Math.PI / 2);
-  painting.visible = false;
-  mist.reveal.push(painting);
-  const mistWall = box(8, 0, 56.5, 8.5, 3, 59.5, texMat(stoneTex, 1, 1));
+  const mistWall = box(8, 0, 56.5, 8.5, 3, 59.5, WALL);
+  worldUV(mistWall.mesh);
   mist.wall = mistWall;
   const mistWallInt = addInteract('mistWall', 7.4, 1.5, 58, 'Prozkoumat zeď');
 
@@ -470,7 +469,7 @@ export function buildWorld(scene) {
   lockInt.enabled = false;
 
   // ===== 7) Aréna Minotaura =====
-  room(14.5, 44, 44, 72, { openings: [{ side: 'w', c: 58, w: 3 }, { side: 'e', c: 58, w: 3.5, h: 4 }], h: 7, ceiling: false, floor: sandTex });
+  room(14.5, 44, 44, 72, { openings: [{ side: 'w', c: 58, w: 3 }, { side: 'e', c: 58, w: 3.5, h: 4 }], h: 7, ceiling: false, floor: 'sand' });
   const pillars = [];
   for (const [x, z] of [[22, 51], [36, 51], [22, 65], [36, 65]]) {
     const g = column(x, z, 6.2, 0.95);
@@ -527,17 +526,72 @@ export function buildWorld(scene) {
     g.font = 'bold 28px Georgia'; g.fillStyle = '#ffe8a0'; g.fillText('I . . .', 30, 240);
     g.strokeStyle = '#d4af37'; g.lineWidth = 10; g.strokeRect(0, 0, w, h);
   });
-  plane(mosaicTex, 4, 2, 43.95, 2.6, 64.5, -Math.PI / 2);
+  seal(plane(mosaicTex, 4, 2, 43.95, 2.6, 64.5, -Math.PI / 2));
   addInteract('mosaic', 43, 1.5, 64.5, 'Prohlédnout mozaiku', 2.6);
 
   // ===== 8) Východ do tábora =====
-  room(44.5, 54, 56, 62, { skip: ['w'], h: 6, ceiling: false, floor: grassTex, frieze: false });
-  const sign = textTexture(['TÁBOR POLOKREVNÝCH', 'Camp Half-Blood'], { w: 512, h: 256, font: 'bold 44px Georgia', color: '#fff', glow: '#f07a1a', bg: '#3a2a1a' });
+  room(44.5, 54, 56, 62, { skip: ['w'], h: 6, ceiling: false, floor: 'grass', frieze: false });
+  const sign = textTexture(['TÁBOR POLOKREVNÝCH', 'Camp Half-Blood'], { w: 512, h: 256, font: 'bold 36px Georgia', color: '#fff', glow: '#f07a1a', bg: '#3a2a1a' });
   plane(sign, 4, 2, 55.9, 3, 58, -Math.PI / 2);
+
+  // ===== Atmosféra: prach ve světle pochodní a sluneční paprsky v aréně =====
+  const dustSprite = canvasTex(64, 64, (g, w, h) => {
+    const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+    gr.addColorStop(0, 'rgba(255,240,210,1)'); gr.addColorStop(0.4, 'rgba(255,220,170,0.35)'); gr.addColorStop(1, 'rgba(255,200,150,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  });
+  const dustRooms = [[-8, 0, 8, 16, 4], [-7, 22.5, 7, 34, 5], [-3.5, 34.5, 3.5, 52, 3.5], [-8, 52.5, 8, 64, 4.5], [14.5, 44, 44, 72, 7]];
+  const dustN = 900;
+  const dustPos = new Float32Array(dustN * 3);
+  const dustBase = new Float32Array(dustN * 3);
+  const dr = rnd(21);
+  for (let i = 0; i < dustN; i++) {
+    const r = dustRooms[Math.floor(dr() * dustRooms.length)];
+    dustBase[i * 3] = r[0] + dr() * (r[2] - r[0]);
+    dustBase[i * 3 + 1] = 0.3 + dr() * (r[4] - 0.5);
+    dustBase[i * 3 + 2] = r[1] + dr() * (r[3] - r[1]);
+  }
+  dustPos.set(dustBase);
+  const dustGeo = new THREE.BufferGeometry();
+  dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+  const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ size: 0.06, map: dustSprite, color: 0xffd9a8, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, fog: true }));
+  dust.frustumCulled = false;
+  scene.add(dust);
+  animated.push((time) => {
+    for (let i = 0; i < dustN; i++) {
+      const k = i * 3, ph = i * 0.37;
+      dustPos[k] = dustBase[k] + Math.sin(time * 0.13 + ph) * 0.6;
+      dustPos[k + 1] = dustBase[k + 1] + Math.sin(time * 0.09 + ph * 1.7) * 0.4;
+      dustPos[k + 2] = dustBase[k + 2] + Math.cos(time * 0.11 + ph * 0.6) * 0.6;
+    }
+    dustGeo.attributes.position.needsUpdate = true;
+  });
+
+  const shaftMat = new THREE.ShaderMaterial({
+    uniforms: { time: { value: 0 }, color: { value: new THREE.Color(0xffd8a0) } },
+    vertexShader: `varying vec3 vN; varying vec3 vV; varying float vY;
+      void main(){ vY = uv.y; vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `uniform float time; uniform vec3 color; varying vec3 vN; varying vec3 vV; varying float vY;
+      void main(){ float edge = pow(abs(dot(vN, vV)), 2.5); float along = smoothstep(0.0, 0.25, vY) * smoothstep(1.0, 0.6, vY);
+        float flick = 0.85 + 0.15 * sin(time * 0.7 + vY * 6.0);
+        gl_FragColor = vec4(color * edge * along * flick * 0.16, 1.0); }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+  const sunDir = new THREE.Vector3(9, -30, 18).normalize();
+  for (const [x, z, r] of [[20, 49, 1.1], [26, 47.5, 0.8], [31, 50, 1.3], [22.5, 55, 0.7]]) {
+    const len = 16;
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.7, r * 1.5, len, 20, 1, true), shaftMat);
+    const top = new THREE.Vector3(x, 7.5, z);
+    shaft.position.copy(top).addScaledVector(sunDir, len / 2);
+    shaft.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), sunDir);
+    shaft.renderOrder = 5;
+    scene.add(shaft);
+  }
+  animated.push((time) => { shaftMat.uniforms.time.value = time; });
 
   return {
     colliders, solids, interactables, mist, animated, pillars, triggers,
-    doorA, sphinx, sphinxBlock, sphinxInt, chest, mistWall, mistWallInt, fakeInt, lockDoor, lockInt, gate,
+    doorA, sphinx, sphinxBlock, sphinxInt, chest, mistWall, mistWallInt, mistTabletInt, fakeInt, lockDoor, lockInt, gate,
     cage, cageBars, cageInt, secretInt,
     rooms: {
       entrance: [-8, 0, 8, 16], sphinx: [-7, 22.5, 7, 34], hounds: [-3.5, 34.5, 3.5, 52], mist: [-8, 52.5, 8, 64], arena: [14.5, 44, 44, 72],

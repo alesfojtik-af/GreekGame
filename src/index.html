@@ -48,6 +48,13 @@
   #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s; }
   #panel { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); width: min(740px, 94vw); background: var(--panel); border: 2px solid var(--gold); border-radius: 12px; padding: 18px 22px; box-shadow: 0 10px 40px rgba(0,0,0,.6); max-height: 80vh; overflow-y: auto; }
   .npc-name { color: var(--gold); font-size: 20px; font-weight: bold; margin-bottom: 8px; }
+  .seal { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #fff2b0, #e0b040 55%, #8a5a10); color: #5a3606; font-size: 15px; font-weight: bold; vertical-align: middle; margin-right: 4px; }
+  .credits { margin-top: 14px; font-size: 12px; color: #8a7a60; max-width: 640px; text-align: center; }
+  .credits a { color: #b8a070; }
+  .note-saved { color: #c8b890; font-size: 14px; font-style: italic; margin: -4px 0 10px; }
+  .journal-entry { border-top: 1px solid rgba(212,175,55,.35); padding: 10px 0; font-size: 16px; line-height: 1.45; }
+  .journal-head { color: var(--gold); font-weight: bold; margin-bottom: 4px; }
+  .journal-place { color: #a89870; font-weight: normal; font-size: 13px; margin-left: 6px; }
   .npc-text, .question { font-size: 18px; line-height: 1.45; margin-bottom: 12px; }
   .question { background: rgba(255,255,255,.05); padding: 10px; border-left: 3px solid var(--gold); }
   .feedback { margin-bottom: 8px; font-style: italic; }
@@ -89,6 +96,9 @@
   table.lb tr.me td { background: rgba(232,197,71,.18); color: #fff; font-weight: bold; }
   #scoreBreakdown { display: grid; grid-template-columns: auto auto; gap: 2px 18px; text-align: left; font-size: 15px; color: #d8c8a0; margin: 4px auto 10px; font-variant-numeric: tabular-nums; }
   #scoreBreakdown b { text-align: right; color: var(--ink); }
+  .volume { display: flex; gap: 22px; justify-content: center; flex-wrap: wrap; margin: 10px 0 4px; color: var(--muted); font-size: 15px; }
+  .volume label { display: flex; align-items: center; gap: 8px; }
+  .volume input[type=range] { width: 150px; accent-color: var(--gold); }
   @media (max-width: 760px) { #controlsHud { display: none; } }
   @media (prefers-reduced-motion: reduce) { .popup { animation: none; } }
 </style>
@@ -122,7 +132,12 @@
     <button class="big" id="btnHall">Síň slávy</button>
   </div>
   <div id="hallMenu" class="lbwrap hidden"></div>
+  <div class="volume">
+    <label>🎵 Hudba <input type="range" class="vol" data-kind="music" min="0" max="100" step="5" aria-label="Hlasitost hudby" /></label>
+    <label>🔊 Efekty <input type="range" class="vol" data-kind="sfx" min="0" max="100" step="5" aria-label="Hlasitost efektů" /></label>
+  </div>
   <div class="controls" id="controlsMenu"></div>
+  <div class="credits">Textury kamene, písku, dřeva a trávy: <a href="https://github.com/BabylonJS/Assets" target="_blank" rel="noopener">Babylon.js Assets</a>, licence <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>. Hudba: vlastní skladby se zvuky nástrojů FluidR3 GM (MIT).</div>
 </div>
 
 <div id="intro" class="overlay hidden">
@@ -133,6 +148,10 @@
 
 <div id="pause" class="overlay hidden">
   <h1>Pauza</h1>
+  <div class="volume">
+    <label>🎵 Hudba <input type="range" class="vol" data-kind="music" min="0" max="100" step="5" aria-label="Hlasitost hudby" /></label>
+    <label>🔊 Efekty <input type="range" class="vol" data-kind="sfx" min="0" max="100" step="5" aria-label="Hlasitost efektů" /></label>
+  </div>
   <div class="controls" id="controlsPause"></div>
   <button class="big" id="btnResume">Pokračovat (klikni)</button>
   <button class="big" id="btnMenu">Hlavní menu</button>
