@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Útěk z Labyrintu</title>
+<style>
+  :root { --gold: #e8c547; --ink: #f4ead2; --panel: rgba(20, 14, 8, 0.92); --accent: #f07a1a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d0905; color: var(--ink); font-family: Georgia, 'Times New Roman', serif; }
+  canvas { display: block; }
+  .hidden { display: none !important; }
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+  #hearts { position: absolute; top: 14px; left: 16px; font-size: 26px; letter-spacing: 2px; }
+  #timer { position: absolute; top: 16px; right: 16px; font-size: 18px; background: rgba(0,0,0,.45); padding: 4px 10px; border-radius: 6px; }
+  #objective { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.55); padding: 6px 14px; border-radius: 8px; border: 1px solid #6a4a20; font-size: 16px; max-width: 60vw; text-align: center; }
+  #prompt { position: absolute; bottom: 110px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.65); padding: 8px 16px; border-radius: 8px; border: 1px solid var(--gold); font-size: 18px; }
+  #toast { position: absolute; top: 104px; left: 50%; transform: translateX(-50%); background: rgba(30,20,10,.88); border: 1px solid var(--gold); padding: 10px 18px; border-radius: 8px; font-size: 17px; max-width: 70vw; text-align: center; opacity: 0; transition: opacity .3s; }
+  #toast.show { opacity: 1; }
+  #inventory { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; }
+  .slot-inv { width: 64px; height: 64px; background: rgba(0,0,0,.55); border: 2px solid #8a6a2a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 30px; position: relative; }
+  .slot-inv span { position: absolute; bottom: 2px; right: 5px; font-size: 13px; }
+  .slot-inv em { position: absolute; bottom: -18px; font-size: 10px; font-style: normal; white-space: nowrap; color: #d8c8a0; }
+  #crosshair { position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: rgba(255,255,255,.5); }
+  #boss { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); width: 360px; text-align: center; font-size: 14px; }
+  #boss .bar { height: 12px; border: 1px solid #c8a050; background: #2a0a0a; margin-top: 3px; }
+  #bossfill { height: 100%; background: linear-gradient(90deg, #a01010, #e04020); width: 100%; transition: width .2s; }
+  #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s; }
+  #panel { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); width: min(720px, 94vw); background: var(--panel); border: 2px solid var(--gold); border-radius: 12px; padding: 18px 22px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+  .npc-name { color: var(--gold); font-size: 20px; font-weight: bold; margin-bottom: 8px; }
+  .npc-text, .question { font-size: 18px; line-height: 1.45; margin-bottom: 12px; }
+  .question { background: rgba(255,255,255,.05); padding: 10px; border-left: 3px solid var(--gold); }
+  .feedback { margin-bottom: 8px; font-style: italic; }
+  .feedback.ok { color: #9be08a; } .feedback.bad { color: #ff8a7a; }
+  .options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  button { font-family: inherit; font-size: 16px; background: #3a2810; color: var(--ink); border: 1px solid var(--gold); border-radius: 6px; padding: 8px 14px; cursor: pointer; }
+  button:hover:not(:disabled) { background: #5a3e18; }
+  button:disabled { opacity: .45; cursor: default; }
+  button.leave { margin-left: auto; background: #2a1a10; }
+  .answer-row { display: flex; gap: 8px; }
+  .answer-row input { flex: 1; font-size: 18px; padding: 8px; border-radius: 6px; border: 1px solid var(--gold); background: #120c06; color: var(--ink); font-family: inherit; }
+  .micstate { min-height: 20px; font-size: 14px; color: #c8b890; margin-top: 6px; }
+  .slots { display: flex; gap: 10px; justify-content: center; margin: 10px 0; }
+  .slot { width: 64px; height: 64px; border: 2px dashed var(--gold); border-radius: 8px; font-size: 36px; display: flex; align-items: center; justify-content: center; }
+  .overlay { position: fixed; inset: 0; background: radial-gradient(ellipse at center, rgba(40,25,10,.94), rgba(5,3,1,.98)); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; overflow-y: auto; }
+  .overlay h1 { font-size: clamp(32px, 6vw, 60px); color: var(--gold); margin: 0 0 4px; letter-spacing: 2px; text-shadow: 0 0 20px rgba(232,197,71,.5); }
+  .overlay h2 { font-weight: normal; margin: 0 0 20px; color: #d8c8a0; }
+  .overlay p { max-width: 680px; font-size: 18px; line-height: 1.5; }
+  .parents { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin: 14px 0 20px; max-width: 900px; }
+  .parent { width: 160px; padding: 12px; border: 2px solid #6a4a20; border-radius: 10px; background: rgba(0,0,0,.4); cursor: pointer; }
+  .parent.sel { border-color: var(--gold); background: rgba(232,197,71,.15); }
+  .parent .ic { font-size: 36px; }
+  .parent b { display: block; margin: 4px 0; color: var(--gold); }
+  .parent small { color: #d8c8a0; }
+  .big { font-size: 20px; padding: 12px 28px; margin: 6px; }
+  .controls { display: grid; grid-template-columns: auto auto; gap: 4px 18px; text-align: left; font-size: 15px; margin: 14px auto; color: #d8c8a0; }
+  .controls kbd { background: #2a1a0a; border: 1px solid #8a6a2a; border-radius: 4px; padding: 1px 6px; color: var(--ink); font-family: monospace; }
+</style>
+</head>
+<body>
+<div id="hud" class="hidden">
+  <div id="hearts"></div>
+  <div id="objective"></div>
+  <div id="timer"></div>
+  <div id="boss" class="hidden">MINOTAUROS<div class="bar"><div id="bossfill"></div></div></div>
+  <div id="crosshair"></div>
+  <div id="prompt" class="hidden"></div>
+  <div id="toast"></div>
+  <div id="inventory"></div>
+</div>
+<div id="flash"></div>
+<div id="panel" class="hidden"></div>
+
+<div id="menu" class="overlay">
+  <h1>ÚTĚK Z LABYRINTU</h1>
+  <h2>Escape room ve světě řeckých bohů</h2>
+  <p>Jsi nový polobůh v Táboře polokrevných. Kdo je tvůj božský rodič?</p>
+  <div class="parents" id="parents"></div>
+  <div>
+    <button class="big" id="btnNew">Nová hra</button>
+    <button class="big hidden" id="btnContinue">Pokračovat</button>
+  </div>
+  <div class="controls" id="controlsMenu"></div>
+</div>
+
+<div id="intro" class="overlay hidden">
+  <h1>Δ</h1>
+  <div id="introText"></div>
+  <button class="big" id="btnStart">Vstoupit do Labyrintu</button>
+</div>
+
+<div id="pause" class="overlay hidden">
+  <h1>Pauza</h1>
+  <div class="controls" id="controlsPause"></div>
+  <button class="big" id="btnResume">Pokračovat (klikni)</button>
+  <button class="big" id="btnMenu">Hlavní menu</button>
+</div>
+
+<div id="dead" class="overlay hidden">
+  <h1>Padl(a) jsi...</h1>
+  <p>Ale polobozi se nevzdávají. Vracíš se kousek zpět ke kontrolnímu bodu.</p>
+</div>
+
+<div id="win" class="overlay hidden">
+  <h1>UNIKL(A) JSI!</h1>
+  <h2>Ariadnina nit tě vyvedla z Labyrintu zpět do Tábora polokrevných.</h2>
+  <p id="winStats"></p>
+  <p>Chiron už čeká s další výpravou... (další escape room příště)</p>
+  <button class="big" id="btnAgain">Hrát znovu</button>
+</div>
+
+<script type="module" src="./main.js"></script>
+</body>
+</html>
