@@ -3,10 +3,9 @@
 // Efekty se syntetizují přes Web Audio.
 import exploreData from './assets/music/explore.webm';
 import combatData from './assets/music/combat.webm';
-import puzzleData from './assets/music/puzzle.webm';
 import LOOPS from './assets/music/loops.json';
 
-const MUSIC = { explore: exploreData, combat: combatData, puzzle: puzzleData };
+const MUSIC = { explore: exploreData, combat: combatData };
 const VOLUME_KEY = 'labyrint-volume';
 const MASTER = 0.7;
 
@@ -101,6 +100,8 @@ export function toggleMute() {
   if (master) master.gain.setTargetAtTime(muted ? 0 : MASTER, ctx.currentTime, 0.05);
   return muted;
 }
+
+export const getMood = () => currentMood;
 
 export function setMood(name) {
   if (!ctx || name === currentMood || !moods[name]) return;

@@ -14,7 +14,7 @@ import {
   WANDERERS, PEST, CURIOSITIES, JOURNAL, objective, groverLines,
 } from './content.js';
 import { matches } from './speech.js';
-import { initAudio, sfx, toggleMute, setMood, getVolume, setVolume } from './audio.js';
+import { initAudio, sfx, toggleMute, setMood, getMood, getVolume, setVolume } from './audio.js';
 import * as ui from './ui.js';
 import { loadLeaderboard, submitScore, sourceNote, withOwnRow } from './score.js';
 
@@ -1351,7 +1351,7 @@ function updateCamera(dt) {
 }
 
 function updateMood() {
-  if (mode === 'dialog') return setMood('puzzle');
+  if (mode === 'dialog') return; // při rozhovoru a hádankách hraje dál stejná hudba
   const fighting = hounds.some((h) => !h.dead && h.state !== 'idle') || myrmexes.length > 0 || (minotaur && minotaur.state !== 'sleep');
   setMood(fighting ? 'combat' : 'explore');
 }
@@ -1590,5 +1590,5 @@ loop();
 window.__game = {
   tick: (n) => { for (let i = 0; i < n; i++) step(1 / 60); }, keys, player, W, interact, attack, shoot,
   flags: () => flags, get mode() { return mode; }, inventory: () => inventory, hounds: () => hounds, minotaur: () => minotaur,
-  myrmexes: () => myrmexes, pest: () => pest, score: () => score, arrows: () => arrows, scoreLog: () => scoreLog, fireTrigger,
+  myrmexes: () => myrmexes, pest: () => pest, score: () => score, arrows: () => arrows, scoreLog: () => scoreLog, fireTrigger, mood: getMood,
 };

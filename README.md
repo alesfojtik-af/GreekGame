@@ -40,7 +40,7 @@ node build.mjs     # sestaví dist/index.html (jeden soubor, three.js uvnitř)
 ```
 Zdrojáky v `src/`: `content.js` (texty, hádanky, body, deník), `world.js` (mapa), `main.js` (logika), `models.js` (postavy), `surface.js` (látky, srst, kůže), `textures.js` (fotografické textury), `ui.js`, `speech.js`, `audio.js` (hudba a zvuky), `score.js` (síň slávy).
 
-**Hudba:** `tools/music/compose.py` složí tři smyčky (průzkum ve stylu Barbara Conana, boj ve stylu Pirátů z Karibiku, hádanky) jako MIDI a vyrenderuje je přes fluidsynth se zvuky FluidR3 GM do `src/assets/music/`. Jde o vlastní skladby, ne o filmové melodie.
+**Hudba:** `tools/music/compose.py` složí dvě smyčky (průzkum ve stylu Barbara Conana, boj ve stylu Pirátů z Karibiku) jako MIDI a vyrenderuje je přes fluidsynth se zvuky FluidR3 GM do `src/assets/music/`. Jde o vlastní skladby, ne o filmové melodie.
 
 **Textury:** `tools/textures/prepare.py` stáhne a zmenší textury do `src/assets/tex/`.
 

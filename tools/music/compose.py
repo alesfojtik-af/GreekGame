@@ -6,7 +6,7 @@ Hádanky: tichá harfa, smyčce a flétna.
 
 Spuštění (potřebuje fluidsynth, FluidR3_GM.sf2, ffmpeg, mido, numpy):
     python3 tools/music/compose.py
-Výstup: src/assets/music/{explore,combat,puzzle}.webm (Opus, smyčka bez švu).
+Výstup: src/assets/music/{explore,combat}.webm (Opus, smyčka bez švu).
 """
 import os
 import random
@@ -354,7 +354,7 @@ def render(song, name, loudness):
 
 if __name__ == '__main__':
     lengths = {}
-    for fn, loud in ((explore, 0.12), (combat, 0.14), (puzzle, 0.09)):
+    for fn, loud in ((explore, 0.12), (combat, 0.14)):
         song, name = fn()
         lengths[name] = render(song, name, loud)
     with open(os.path.join(OUT, 'loops.json'), 'w') as f:
