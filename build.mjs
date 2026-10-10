@@ -8,3 +8,8 @@ const html = readFileSync('src/index.html', 'utf8').replace('<script type="modul
 mkdirSync('dist', { recursive: true });
 writeFileSync('dist/index.html', html);
 console.log('dist/index.html', (html.length / 1024).toFixed(0) + ' kB');
+
+// Varianta pro Claude Artifact: bez vlastního <html>/<head>/<body>, obal doplní platforma.
+const head = html.match(/<head>([\s\S]*?)<\/head>/)[1].replace(/<meta[^>]*>\s*/g, '');
+const body = html.match(/<body>([\s\S]*)<\/body>/)[1];
+if (process.env.ARTIFACT_OUT) writeFileSync(process.env.ARTIFACT_OUT, head + body);
